@@ -1,179 +1,162 @@
 # StockSense — Inventory Management System (IMS)
 
-A modular Inventory Management System that replaces manual registers,
-Excel sheets, and scattered tracking with a centralized, real-time
-web app for managing stock across warehouses and locations.
+A modular, real-time Inventory Management System designed to replace manual registers and scattered spreadsheets with a centralized, role-based platform for tracking stock across warehouses and locations.
 
 ---
 
 ## Table of Contents
 
 - [Overview](#overview)
-- [Target Users](#target-users)
-- [Core Features](#core-features)
+- [Target Users & Role Access](#target-users--role-access)
+- [Core Features & Recent Updates](#core-features--recent-updates)
 - [Tech Stack](#tech-stack)
 - [Architecture](#architecture)
 - [Project Structure](#project-structure)
 - [Getting Started](#getting-started)
 - [Environment Variables](#environment-variables)
 - [Team & Work Split](#team--work-split)
-- [Roadmap](#roadmap)
+- [Future Roadmap](#future-roadmap)
 
 ---
 
 ## Overview
 
-StockSense digitizes end-to-end stock operations:
+StockSense digitizes end-to-end inventory operations:
 
 - Receiving goods from vendors (**Receipts**)
 - Shipping goods to customers (**Delivery Orders**)
-- Moving stock between warehouses/locations (**Internal Transfers**)
+- Moving stock between warehouses and racks (**Internal Transfers**)
 - Reconciling physical counts vs. system records (**Stock Adjustments**)
 
-Every stock-changing action is written to a single, append-only
-**Stock Ledger**, so the dashboard, product stock levels, and move
-history are always derived from one consistent source of truth.
+Every stock-changing action is written to a single, append-only **Stock Ledger**, keeping dashboard KPIs, product counts, and move histories synchronized from a single source of truth.
 
-## Target Users
+---
 
-| Role | What they do |
-|---|---|
-| **Inventory Managers** | Manage incoming & outgoing stock, review dashboards, set reorder rules |
-| **Warehouse Staff** | Perform transfers, picking, shelving, and physical stock counts |
+## Target Users & Role Access
 
-## Core Features
+| Role | Access Level | Permissions |
+|---|---|---|
+| **Inventory Managers** | Admin / Manager | Complete operational access, catalog management, reorder rules, and manager passcode signup verification (`MGR-2026-KEY`). |
+| **Warehouse Staff** | Operational Staff | Perform transfers, stock picking, shelving, and physical stock count adjustments. |
 
-**Authentication**
-- Sign up / log in
-- OTP-based password reset
-- Redirect to Inventory Dashboard on login
+---
 
-**Dashboard**
-- KPIs: Total Products in Stock, Low/Out of Stock Items, Pending Receipts,
-  Pending Deliveries, Internal Transfers Scheduled
-- Dynamic filters: document type, status (Draft/Waiting/Ready/Done/Canceled),
-  warehouse or location, product category
+## Core Features & Recent Updates
 
-**Products**
-- Create/update products (name, SKU/code, category, unit of measure,
-  optional initial stock)
-- Stock availability per location
-- Product categories & reordering rules
+### 🔐 Authentication & Security (Completed)
+- **Role-Based Auth:** Distinct sign-up flows for **Inventory Manager** & **Warehouse Staff**.
+- **Manager Security:** Signup as Manager requires a secret passcode verification.
+- **Real Backend Authentication:** JWT token auth, bcrypt password hashing, and SQLite user repository.
+- **OTP Password Reset:** Email OTP validation flow for forgotten passwords.
+- **Quick Demo Sign-In:** One-click pre-fills for quick role testing (`admin@stocksense.com` & `staff@stocksense.com`).
 
-**Operations**
-- **Receipts** — add supplier & products, input quantities, validate → stock increases
-- **Delivery Orders** — pick → pack → validate → stock decreases
-- **Internal Transfers** — move stock between warehouses/racks; net stock
-  unchanged, location updated
-- **Stock Adjustments** — enter counted quantity, system computes and
-  logs the delta against recorded stock
-- **Move History** — full stock ledger, filterable
+### 📊 Inventory Dashboard (Completed)
+- **Real-Time KPIs:** Total products in stock, low/out-of-stock count, pending receipts, pending deliveries, scheduled transfers.
+- **Filtering & Analytics:** Dynamic charts with Recharts, category breakdown, document status filters.
 
-**Settings**
-- Warehouse & location management
+### 📦 Product & Operations Management (Completed)
+- **Products:** Stock availability per location, SKU management, category tags, unit of measure.
+- **Operations:** Receipts (stock increases), Delivery Orders (stock decreases), Internal Transfers (location updates), Stock Adjustments (reconciliation).
+- **Move History:** Centralized stock ledger with filterable log entries.
+
+### 🎨 UI/UX & SEO Polish (Completed)
+- Clean dark/light theme, modern card designs, responsive topbar & sidebar navigation, animated micro-interactions.
+- Verified SEO meta tags, OpenGraph attributes, and custom favicon.
+
+---
 
 ## Tech Stack
 
-| Layer | Choice |
+| Layer | Technology |
 |---|---|
-| Frontend | React (Vite) + React Router + Context API + Recharts |
-| Backend | Node.js + Express |
-| Database | PostgreSQL + Prisma ORM |
-| Auth | JWT + bcrypt, email OTP via Nodemailer |
-| Realtime (optional) | Socket.io or polling for live dashboard updates |
-| Hosting | Frontend → Vercel · Backend → Render/Railway · DB → Supabase or Neon |
+| **Frontend** | React (Vite) · React Router DOM · Context API · Recharts · Lucide Icons |
+| **Backend** | Node.js · Express |
+| **Database** | SQLite (Dev) / PostgreSQL (Production) |
+| **Auth** | JWT · bcrypt · OTP validation |
+| **Dev Tools** | Vite · Nodemailer |
+
+---
 
 ## Architecture
 
 ```
-Client (React SPA)
+Client (React SPA - Port 5173)
         │
         ▼
-API Gateway (Express)
-   ├── Auth Service          (signup, login, OTP reset)
-   ├── Product Service       (CRUD, categories, reorder rules)
-   ├── Operations Service    (Receipts, Delivery, Transfers, Adjustments)
-   ├── Ledger Service        (single source of truth — applyStockChange)
-   ├── Dashboard Service     (aggregates KPIs from Ledger + Documents)
-   └── Warehouse/Settings    (warehouses, locations, racks)
+API Backend (Express - Port 3001)
+   ├── Auth Controller       (Login, Signup, Passcode, OTP Reset)
+   ├── Product Controller    (Catalog CRUD, Categories)
+   ├── Operations Controller (Receipts, Deliveries, Transfers, Adjustments)
+   └── Ledger Service        (Single source of truth — applyStockChange)
         │
         ▼
-PostgreSQL
-   ├── Users
-   ├── Products
-   ├── Warehouses / Locations
-   ├── Documents        (receipts, deliveries, transfers, adjustments)
-   └── StockLedger      (append-only: product, location, qty delta, doc ref, timestamp)
+SQLite Database / PostgreSQL
+   ├── Users                 (role, passcode_verified, password_hash)
+   ├── Products              (sku, name, category, stock_qty)
+   ├── Locations             (warehouse, rack)
+   └── StockLedger           (append-only move log)
 ```
 
-**Rule:** stock is only ever changed through the Ledger Service's
-`applyStockChange(productId, locationId, qtyDelta, documentRef)`. No
-other module writes to stock quantities directly — this is what keeps
-the Dashboard, Products, and Move History views consistent.
+---
 
 ## Project Structure
 
 ```
-stocksense/
-├── frontend/                # React + Vite app
+stocksense-frontend/
+├── stocksense-frontend/        # React + Vite Client
 │   ├── src/
-│   │   ├── context/          # AuthContext, InventoryContext
-│   │   ├── layouts/          # MainLayout (sidebar + topbar)
-│   │   ├── components/       # Sidebar, Topbar, KpiCard, StatusBadge
-│   │   └── pages/             # Login, Dashboard, Products, Receipts,
-│   │                           Delivery, Transfers, Adjustments,
-│   │                           MoveHistory, Settings, Profile
+│   │   ├── context/            # AuthContext, InventoryContext
+│   │   ├── components/         # Sidebar, Topbar, KpiCard, StatusBadge
+│   │   └── pages/               # Login, Dashboard, Products, Receipts,
+│   │                             Delivery, Transfers, Adjustments, Profile
+│   ├── index.html              # SEO Meta tags & Favicon
 │   └── package.json
-├── backend/                 # Node/Express API (Auth, Product, Ledger,
-│                              Operations, Dashboard, Warehouse services)
+├── stocksense-backend/         # Express API
+│   ├── server.js               # Auth, Products & Ledger Endpoints
+│   ├── database.sqlite         # SQLite database file
+│   └── package.json
 └── README.md
 ```
 
+---
+
 ## Getting Started
 
-### Frontend
+### 1. Start the Backend Server
 ```bash
-cd frontend
+cd stocksense-backend
+npm install
+node server.js
+```
+Runs at `http://localhost:3001`.
+
+### 2. Start the Frontend Client
+```bash
+cd stocksense-frontend
 npm install
 npm run dev
 ```
 Runs at `http://localhost:5173`.
 
-### Backend
-```bash
-cd backend
-npm install
-npx prisma migrate dev
-npm run dev
-```
-Runs at `http://localhost:5000` (adjust to your setup).
+---
 
 ## Environment Variables
 
-Create a `.env` in `backend/`:
+Create a `.env` file in `stocksense-backend/`:
 
-```
-DATABASE_URL=postgresql://user:password@localhost:5432/stocksense
-JWT_SECRET=your_jwt_secret
-SMTP_HOST=smtp.example.com
-SMTP_USER=your_email@example.com
-SMTP_PASS=your_email_password
+```env
+PORT=3001
+JWT_SECRET=your_jwt_secret_key
+MANAGER_PASSCODE=MGR-2026-KEY
 ```
 
-## Team & Work Split
+---
 
-Two-person split along the Ledger boundary, so each person owns
-separate folders/collections and merge conflicts stay minimal:
+## Future Roadmap
 
-| | **Member A — Core & Catalog** | **Member B — Operations** |
-|---|---|---|
-| Owns | Auth, Dashboard, Products, Warehouse Settings, **Ledger Service** | Receipts, Delivery, Transfers, Adjustments, Move History |
-| Rule | Exposes `applyStockChange()` — the only way stock changes | Only ever *calls* `applyStockChange()`, never edits Ledger internals |
+- [ ] **PostgreSQL & Prisma Migration:** Production database deployment (Supabase/Neon).
+- [ ] **Barcode / QR Code Scanning:** Mobile barcode scanner integration for quick warehouse stock taking.
+- [ ] **Automated Low-Stock Email Alerts:** Automatic notification triggers when inventory falls below thresholds.
+- [ ] **Multi-Warehouse Export:** PDF & CSV export capabilities for inventory audits and movement history.
+- [ ] **Real-Time WebSockets:** Socket.io synchronization for multi-user inventory updates.
 
-## Roadmap
-
-- [ ] Real backend wired to the frontend scaffold
-- [ ] Role-based access (Inventory Manager vs Warehouse Staff)
-- [ ] Barcode/SKU scanning for picking & counting
-- [ ] Low-stock email/push alerts
-- [ ] Multi-warehouse reporting & export (CSV/PDF)
