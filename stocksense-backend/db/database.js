@@ -16,7 +16,8 @@ function initDb() {
       name TEXT NOT NULL,
       email TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL,
-      role TEXT DEFAULT 'Manager',
+      role TEXT DEFAULT 'Warehouse Staff',
+      is_verified INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -87,16 +88,30 @@ function initDb() {
     );
   `);
 
+  // Migration helper for existing users table
+  try {
+    db.exec(`ALTER TABLE users ADD COLUMN is_verified INTEGER DEFAULT 0;`);
+  } catch (err) {
+    // Column already exists
+  }
+
   // Seed default admin user if not existing
   const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
   if (userCount === 0) {
     const salt = bcrypt.genSaltSync(10);
     const hash = bcrypt.hashSync('admin123', salt);
     db.prepare(`
-      INSERT INTO users (name, email, password_hash, role)
-      VALUES ('Admin User', 'admin@stocksense.com', ?, 'Inventory Manager')
+      INSERT INTO users (name, email, password_hash, role, is_verified)
+      VALUES ('Admin User', 'admin@stocksense.com', ?, 'Inventory Manager', 1)
     `).run(hash);
-    console.log('Seeded default user: admin@stocksense.com / admin123');
+    console.log('Seeded default admin user: admin@stocksense.com / admin123 (Role: Inventory Manager)');
+
+    const staffHash = bcrypt.hashSync('staff123', salt);
+    db.prepare(`
+      INSERT INTO users (name, email, password_hash, role, is_verified)
+      VALUES ('Warehouse Operator', 'staff@stocksense.com', ?, 'Warehouse Staff', 1)
+    `).run(staffHash);
+    console.log('Seeded default staff user: staff@stocksense.com / staff123 (Role: Warehouse Staff)');
   }
 
   // Seed default warehouses if empty
