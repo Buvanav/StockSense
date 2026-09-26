@@ -35,7 +35,7 @@ export function AuthProvider({ children }) {
   }, [darkMode]);
 
   // Helper to add simulated email alert to topbar notification drawer
-  function pushEmailNotification(email, subject, otpCode, type) {
+  function pushEmailNotification(email, subject, otpCode, type, previewUrl) {
     const newEmail = {
       id: Date.now(),
       to: email,
@@ -43,6 +43,7 @@ export function AuthProvider({ children }) {
       otp: otpCode,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       type,
+      previewUrl
     };
     setEmails(prev => [newEmail, ...prev]);
   }
@@ -73,7 +74,7 @@ export function AuthProvider({ children }) {
         body: JSON.stringify({ email, code: otp })
       });
       const data = await res.json();
-      if (!res.ok) return { ok: false, error: data.error || 'Invalid OTP code' };
+      if (!res.ok) return { ok: false, error: data.error || 'Invalid OTP verification code' };
 
       localStorage.setItem('stocksense_token', data.token);
       setUser(data.user);
@@ -83,32 +84,23 @@ export function AuthProvider({ children }) {
     }
   }
 
-  async function signup(name, email, password, role = 'Inventory Manager') {
+  async function signup(name, email, password, role = 'Warehouse Staff', managerPasscode = '') {
     try {
-      // Create user on backend
       const res = await fetch(`${API_URL}/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, email, password, role })
+        body: JSON.stringify({ name, email, password, role, managerPasscode })
       });
       const data = await res.json();
-      if (!res.ok) return { ok: false, error: data.error || 'Signup failed' };
+      if (!res.ok) return { ok: false, error: data.error || 'Registration failed' };
 
-      // Request OTP
-      const otpRes = await fetch(`${API_URL}/auth/otp/request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
-      const otpData = await otpRes.json();
-      
-      if (otpData.otp) {
-        pushEmailNotification(email, 'StockSense Verification Code', otpData.otp, 'signup');
+      if (data.otp) {
+        pushEmailNotification(email, 'StockSense Verification Code', data.otp, 'signup', data.previewUrl);
       }
 
       localStorage.setItem('stocksense_token', data.token);
       setUser(data.user);
-      return { ok: true, otp: otpData.otp };
+      return { ok: true, otp: data.otp };
     } catch (err) {
       return { ok: false, error: 'Backend connection error' };
     }
@@ -119,11 +111,11 @@ export function AuthProvider({ children }) {
       const res = await fetch(`${API_URL}/auth/otp/request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
+        body: JSON.stringify({ email, type })
       });
       const data = await res.json();
       if (data.otp) {
-        pushEmailNotification(email, 'StockSense Verification Code', data.otp, type);
+        pushEmailNotification(email, 'StockSense Verification Code', data.otp, type, data.previewUrl);
       }
       return data.otp || '123456';
     } catch (err) {
@@ -140,13 +132,13 @@ export function AuthProvider({ children }) {
       const res = await fetch(`${API_URL}/auth/otp/request`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
+        body: JSON.stringify({ email, type: 'reset' })
       });
       const data = await res.json();
       if (!res.ok) return { ok: false, error: data.error || 'Could not send OTP' };
 
       if (data.otp) {
-        pushEmailNotification(email, 'StockSense Password Reset Code', data.otp, 'reset');
+        pushEmailNotification(email, 'StockSense Password Reset Code', data.otp, 'reset', data.previewUrl);
       }
       return { ok: true, otp: data.otp };
     } catch (err) {

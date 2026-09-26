@@ -1,4 +1,4 @@
-import { Mail, X, Check, Copy } from 'lucide-react';
+import { Mail, X, Check, Copy, ExternalLink } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 
@@ -21,7 +21,7 @@ export default function EmailDrawer() {
       <div className="simulated-inbox-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Mail size={16} className="text-primary" />
-          <span>Simulated Email Notification ({emails.length})</span>
+          <span>Nodemailer Email Notification ({emails.length})</span>
         </div>
         <button className="btn-ghost" style={{ padding: 2 }} onClick={() => dismissEmail(activeEmail.id)}>
           <X size={16} />
@@ -36,10 +36,10 @@ export default function EmailDrawer() {
           {activeEmail.subject}
         </div>
         <p style={{ color: '#cbd5e1', fontSize: 12, lineHeight: 1.4 }}>
-          Use the following verification code to proceed with StockSense authentication:
+          Use the following security verification code to activate your account:
         </p>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
           <span className="otp-code-highlight">{activeEmail.otp}</span>
           <button
             type="button"
@@ -50,6 +50,17 @@ export default function EmailDrawer() {
             {copiedId === activeEmail.id ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
             {copiedId === activeEmail.id ? 'Copied' : 'Copy'}
           </button>
+          
+          {activeEmail.previewUrl && (
+            <a
+              href={activeEmail.previewUrl}
+              target="_blank"
+              rel="noreferrer"
+              style={{ fontSize: 11, color: '#818cf8', display: 'flex', alignItems: 'center', gap: 4, textDecoration: 'underline' }}
+            >
+              <ExternalLink size={12} /> Open Nodemailer Ethereal Inbox
+            </a>
+          )}
         </div>
       </div>
     </div>
