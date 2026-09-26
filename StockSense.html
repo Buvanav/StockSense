@@ -102,6 +102,7 @@ label{font-size:13px;color:var(--sub);display:block;margin-bottom:3px}
     <a href="#" data-p="transfers">Internal Transfers</a>
     <a href="#" data-p="adjustments">Adjustments</a>
     <a href="#" data-p="ledger">Stock Ledger</a>
+    <a href="#" data-p="settings">Settings</a>
     <a href="#" data-p="profile">Profile</a>
     <a href="#" onclick="logout();return false">Logout</a>
   </div>
@@ -110,12 +111,21 @@ label{font-size:13px;color:var(--sub);display:block;margin-bottom:3px}
 <div id="toastBox"></div>
 
 <script>
-const LOC = {"Main Warehouse":["Rack A","Rack B"],"Production Warehouse":["Production Rack","Finished Goods"]};
+// Checkpoint 4: DEFAULT_LOC is now only a one-time seed used to migrate a brand-new or
+// pre-checkpoint-4 database into DB.warehouses below. Nothing else reads DEFAULT_LOC directly —
+// live code always reads DB.warehouses so warehouses/locations become user-editable data.
+const DEFAULT_LOC = {"Main Warehouse":["Rack A","Rack B"],"Production Warehouse":["Production Rack","Finished Goods"]};
 let DB = JSON.parse(localStorage.getItem('ss_db')||'null') || {users:[],session:null,products:[],stock:{},ledger:[],receipts:[],deliveries:[],seq:1};
 if(!DB.receipts) DB.receipts=[];
 if(!DB.deliveries) DB.deliveries=[];
 if(!DB.transfers) DB.transfers=[]; // Checkpoint 3: Transfers previously had no persisted document array (immediate-validate had none to persist)
 if(!DB.adjustments) DB.adjustments=[]; // Checkpoint 3: same — non-destructive, existing ledger/stock/products/users untouched
+// Checkpoint 4: migrate the old hard-coded LOC constant into DB.warehouses the first time a
+// database (new or pre-checkpoint-4) is loaded. Warehouse/location *names* are carried over
+// unchanged, so every existing "SKU@@Location" stock key and every existing document's
+// loc/from/to field keeps resolving to the same location — no stock or document data moves.
+if(!DB.warehouses) DB.warehouses = Object.keys(DEFAULT_LOC).map(w=>({name:w,locations:DEFAULT_LOC[w].slice()}));
+if(!DB.defaultWarehouse || !DB.warehouses.find(w=>w.name===DB.defaultWarehouse)) DB.defaultWarehouse = DB.warehouses.length?DB.warehouses[0].name:null;
 let otpCache=null, otpUser=null;
 function save(){localStorage.setItem('ss_db',JSON.stringify(DB));}
 function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.getElementById('toastBox').appendChild(t);setTimeout(()=>t.remove(),2500);}
@@ -169,13 +179,28 @@ function setStock(sku,loc,v){DB.stock[stockKey(sku,loc)]=v;}
 function totalStock(sku){let t=0;for(const k in DB.stock) if(k.startsWith(sku+'@@')) t+=DB.stock[k];return t;}
 function addLedger(e){e.date=new Date().toLocaleString();e.user=DB.session;DB.ledger.unshift(e);}
 function statusOf(p){const t=totalStock(p.sku);if(t<=0) return['Out of Stock','b-bad'];if(t<=p.reorder) return['Low Stock','b-warn'];return['Healthy','b-good'];}
-function allLocs(){let a=[];for(const w in LOC) LOC[w].forEach(l=>a.push(l));return a;}
+function allLocs(){let a=[];DB.warehouses.forEach(w=>w.locations.forEach(l=>a.push(l)));return a;}
+function findWarehouse(name){return DB.warehouses.find(w=>w.name===name);}
+// A location is "in use" (unsafe to remove) if any product carries non-zero stock there, or if
+// any Receipt/Delivery/Transfer/Adjustment document — of any status, including Done/Canceled —
+// references it, so historical documents never end up pointing at a location that no longer
+// exists. The Stock Ledger is deliberately NOT checked here: ledger entries store their own
+// location text for the audit trail and don't depend on the location still existing, the same
+// way a ledger entry keeps showing a product's name/sku after the product itself changes.
+function locationInUse(locName){
+ for(const k in DB.stock){ if(k.endsWith('@@'+locName) && DB.stock[k]!==0) return true; }
+ if(DB.receipts.some(d=>d.loc===locName)) return true;
+ if(DB.deliveries.some(d=>d.loc===locName)) return true;
+ if(DB.transfers.some(d=>d.from===locName||d.to===locName)) return true;
+ if(DB.adjustments.some(d=>d.loc===locName)) return true;
+ return false;
+}
 
 // ---------- NAV / RENDER ----------
 function enterApp(){document.getElementById('login').classList.add('hidden');document.getElementById('app').classList.remove('hidden');nav('dashboard');}
 document.querySelectorAll('#sidebar a[data-p]').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();nav(a.dataset.p);}));
 function nav(p){document.querySelectorAll('#sidebar a[data-p]').forEach(a=>a.classList.toggle('active',a.dataset.p===p));
- const fn={dashboard:renderDashboard,products:renderProducts,receipts:renderReceipts,deliveries:renderDeliveries,transfers:renderTransfers,adjustments:renderAdjustments,ledger:renderLedger,profile:renderProfile}[p];
+ const fn={dashboard:renderDashboard,products:renderProducts,receipts:renderReceipts,deliveries:renderDeliveries,transfers:renderTransfers,adjustments:renderAdjustments,ledger:renderLedger,settings:renderSettings,profile:renderProfile}[p];
  fn();}
 
 function renderDashboard(){
@@ -219,7 +244,12 @@ function addProduct(){
 }
 
 function prodOptions(){return DB.products.map(p=>`<option value="${p.sku}">${p.name} (${p.sku})</option>`).join('');}
-function locOptions(){return allLocs().map(l=>`<option>${l}</option>`).join('');}
+function locOptions(){
+ // Pre-select the default warehouse's first location as a convenience; list order is unchanged.
+ const def=findWarehouse(DB.defaultWarehouse);
+ const defFirstLoc=def&&def.locations.length?def.locations[0]:null;
+ return allLocs().map(l=>`<option ${l===defFirstLoc?'selected':''}>${l}</option>`).join('');
+}
 
 // ---------- DOCUMENT LIFECYCLE (Receipts & Deliveries): Draft -> Waiting -> Ready -> Done / Canceled ----------
 // Only the 'validate' transition (Ready -> Done) ever touches stock or the ledger.
@@ -436,6 +466,132 @@ function renderLedger(){
  ${DB.ledger.map(l=>`<tr><td>${l.ref}</td><td>${l.product}</td><td>${l.qty>0?'+':''}${l.qty}</td><td><span class="badge b-gray">${l.type}</span></td><td>${l.loc}</td><td>${l.reason||'—'}</td><td>${l.user}</td><td>${l.date}</td></tr>`).join('')||'<tr><td colspan=8 style="color:var(--sub)">No transactions yet</td></tr>'}
  </table></div>`;
 }
+// ---------- SETTINGS (Checkpoint 4: Warehouse & Location Management) ----------
+// DB.warehouses = [{name, locations:[name,...]}], DB.defaultWarehouse = a warehouse name.
+// Adding/renaming/removing here never touches the document lifecycle (docList/renderDocPage/
+// docAction/docTable/docBadge are untouched) — Settings only edits DB.warehouses/DB.defaultWarehouse
+// and, for a location rename, cascades the same string change into DB.stock keys and the four
+// document arrays so nothing is left pointing at a name that no longer exists.
+function renderSettings(){
+ let html=`<h1>Settings</h1>
+ <div class="card" style="margin-bottom:16px">
+  <h3 style="margin-top:0">Default Warehouse</h3>
+  <p style="color:var(--sub);font-size:13px;margin-top:0">Used to pre-select a location when creating a new document.</p>
+  <div class="row">
+   <select id="defWhSel" onchange="setDefaultWarehouse(this.value)">
+    ${DB.warehouses.map(w=>`<option value="${w.name}" ${w.name===DB.defaultWarehouse?'selected':''}>${w.name}</option>`).join('')}
+   </select>
+  </div>
+ </div>
+ <div class="card" style="margin-bottom:16px">
+  <h3 style="margin-top:0">Add Warehouse</h3>
+  <div class="row"><input id="newWhName" placeholder="Warehouse name"><button class="btn" onclick="addWarehouse()">Add Warehouse</button></div>
+  <div class="err" id="settingsErr"></div>
+ </div>`;
+ DB.warehouses.forEach((w,wi)=>{
+  html+=`<div class="card" style="margin-bottom:16px">
+   <div class="row" style="justify-content:space-between;align-items:center">
+    <h3 style="margin:0">${w.name}${w.name===DB.defaultWarehouse?' <span class="badge b-good">Default</span>':''}</h3>
+    <div class="row" style="margin:0">
+     <button class="btn gray" onclick="renameWarehouse('${w.name}')">Rename</button>
+     <button class="btn red" onclick="removeWarehouse('${w.name}')">Remove Warehouse</button>
+    </div>
+   </div>
+   <table><tr><th>Location</th><th>Actions</th></tr>
+   ${w.locations.map(l=>`<tr><td>${l}</td><td>
+     <button class="btn gray" onclick="renameLocation('${w.name}','${l}')">Rename</button>
+     <button class="btn red" onclick="removeLocation('${w.name}','${l}')">Remove</button>
+    </td></tr>`).join('')||'<tr><td colspan=2 style="color:var(--sub)">No locations yet</td></tr>'}
+   </table>
+   <div class="row" style="margin-top:10px">
+    <input id="newLocName_${wi}" placeholder="New location name">
+    <button class="btn" onclick="addLocation('${w.name}',${wi})">Add Location</button>
+   </div>
+  </div>`;
+ });
+ main.innerHTML=html;
+}
+function setDefaultWarehouse(name){
+ if(!findWarehouse(name)) return;
+ DB.defaultWarehouse=name;save();toast('Default warehouse updated');renderSettings();
+}
+function addWarehouse(){
+ const name=(document.getElementById('newWhName').value||'').trim();
+ const err=document.getElementById('settingsErr');err.textContent='';
+ if(!name) return err.textContent='Warehouse name is required.';
+ if(DB.warehouses.some(w=>w.name.toLowerCase()===name.toLowerCase())) return err.textContent='A warehouse with that name already exists.';
+ DB.warehouses.push({name,locations:[]});save();toast('Warehouse added');renderSettings();
+}
+function renameWarehouse(oldName){
+ const nn=prompt('New warehouse name:',oldName); if(nn===null) return;
+ const name=nn.trim();
+ if(!name) return toast('Warehouse name is required.');
+ if(name!==oldName && DB.warehouses.some(w=>w.name.toLowerCase()===name.toLowerCase())) return toast('A warehouse with that name already exists.');
+ const w=findWarehouse(oldName); if(!w) return;
+ w.name=name;
+ if(DB.defaultWarehouse===oldName) DB.defaultWarehouse=name; // keep the default pointer valid
+ save();toast('Warehouse renamed');renderSettings();
+}
+function removeWarehouse(name){
+ const w=findWarehouse(name); if(!w) return;
+ if(DB.warehouses.length<=1) return toast('At least one warehouse must remain.');
+ // Safety: a warehouse can only be removed once it has no locations left — removing its
+ // locations individually (below) already refuses if any of them is still referenced by
+ // stock or a document, so an empty warehouse is always safe to remove.
+ if(w.locations.length>0) return toast('Remove or move all of this warehouse\'s locations first.');
+ if(!confirm(`Remove warehouse "${name}"? This cannot be undone.`)) return;
+ DB.warehouses=DB.warehouses.filter(x=>x.name!==name);
+ if(DB.defaultWarehouse===name) DB.defaultWarehouse=DB.warehouses[0].name;
+ save();toast('Warehouse removed');renderSettings();
+}
+function addLocation(whName,wi){
+ const el=document.getElementById('newLocName_'+wi);
+ const name=(el.value||'').trim();
+ if(!name) return toast('Location name is required.');
+ // Location names are unique across ALL warehouses, not just within one — stockKey() only
+ // encodes "SKU@@Location", not the warehouse, so two locations sharing a name would collide.
+ if(allLocs().some(l=>l.toLowerCase()===name.toLowerCase())) return toast('A location with that name already exists (location names must be unique across all warehouses).');
+ const w=findWarehouse(whName); if(!w) return;
+ w.locations.push(name);save();toast('Location added');renderSettings();
+}
+function renameLocation(whName,oldLoc){
+ const nn=prompt('New location name:',oldLoc); if(nn===null) return;
+ const name=nn.trim();
+ if(!name) return toast('Location name is required.');
+ if(name!==oldLoc && allLocs().some(l=>l.toLowerCase()===name.toLowerCase())) return toast('A location with that name already exists.');
+ const w=findWarehouse(whName); if(!w) return;
+ const idx=w.locations.indexOf(oldLoc); if(idx===-1) return;
+ // Rename is "safe" exactly when the new name doesn't collide with an existing one (checked
+ // above). Nothing is orphaned: cascade the same string change into stock keys and every
+ // document field that stores this location name, so existing data keeps resolving correctly.
+ for(const k in DB.stock){
+  if(k.endsWith('@@'+oldLoc)){
+   const sku=k.slice(0,k.length-('@@'+oldLoc).length);
+   if(sku+'@@'+oldLoc===k){ DB.stock[stockKey(sku,name)]=DB.stock[k]; delete DB.stock[k]; }
+  }
+ }
+ DB.receipts.forEach(d=>{if(d.loc===oldLoc) d.loc=name;});
+ DB.deliveries.forEach(d=>{if(d.loc===oldLoc) d.loc=name;});
+ DB.transfers.forEach(d=>{if(d.from===oldLoc) d.from=name; if(d.to===oldLoc) d.to=name;});
+ DB.adjustments.forEach(d=>{if(d.loc===oldLoc) d.loc=name;});
+ DB.ledger.forEach(l=>{
+  if(l.loc===oldLoc){ l.loc=name; }
+  else if(l.loc && l.loc.indexOf(' → ')!==-1){
+   const parts=l.loc.split(' → ');
+   if(parts[0]===oldLoc||parts[1]===oldLoc) l.loc=`${parts[0]===oldLoc?name:parts[0]} → ${parts[1]===oldLoc?name:parts[1]}`;
+  }
+ });
+ w.locations[idx]=name;
+ save();toast('Location renamed');renderSettings();
+}
+function removeLocation(whName,locName){
+ if(locationInUse(locName)) return toast('Cannot remove: this location is referenced by existing stock or a document.');
+ if(!confirm(`Remove location "${locName}"? This cannot be undone.`)) return;
+ const w=findWarehouse(whName); if(!w) return;
+ w.locations=w.locations.filter(l=>l!==locName);
+ save();toast('Location removed');renderSettings();
+}
+
 function renderProfile(){
  const u=DB.users.find(x=>x.email===DB.session);
  main.innerHTML=`<h1>Profile</h1><div class="card" style="max-width:400px">

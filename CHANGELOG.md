@@ -1,5 +1,70 @@
 # Changelog
 
+## [2026-09-26] — checkpoint 4
+
+### Added
+
+- Settings page and sidebar nav item, listing every warehouse and its
+  locations.
+- `DB.warehouses` array: `{ name, locations: [name, ...] }`, replacing the
+  hard-coded `LOC` constant (now `DEFAULT_LOC`, used only as a one-time
+  migration seed — see Changed/Fixed below).
+- `DB.defaultWarehouse`: a warehouse name, editable from Settings; its
+  first location is pre-selected in the Receipt/Delivery/Transfer/
+  Adjustment "New" forms.
+- Add Warehouse, Add Location, Rename Warehouse, Rename Location, Remove
+  Warehouse, Remove Location actions, all on the Settings page.
+- `findWarehouse(name)` and `locationInUse(locName)` helpers.
+
+### Changed
+
+- `allLocs()` now reads `DB.warehouses` instead of the old `LOC` constant.
+- `locOptions()` now marks the default warehouse's first location as
+  `selected`; the option list's order is unchanged.
+- Renaming a location cascades the new name into every `DB.stock` key,
+  every document's `loc`/`from`/`to` field, and every Stock Ledger row
+  that references it (including `"From → To"`-style Transfer ledger
+  rows), so nothing is left pointing at a name that no longer exists.
+
+### Safety rules added
+
+- A warehouse name must be unique (case-insensitive); a location name
+  must be unique across **all** warehouses, not just within one.
+- Renaming a warehouse or location is blocked only on a name collision.
+- Removing a location is blocked if any product has non-zero stock there,
+  or if any Receipt/Delivery/Transfer/Adjustment document — any status,
+  including Done/Canceled — references it. The Stock Ledger is
+  intentionally not part of this check.
+- Removing a warehouse is blocked while it still has any locations, and
+  while it is the only warehouse remaining. Removing the current default
+  warehouse reassigns the default to another remaining warehouse.
+
+### Fixed
+
+- N/A — no bugs found in Checkpoints 1–3 during this checkpoint's
+  inspection.
+
+### Tested
+
+- 55/55 scenarios passed in a standalone Node `vm`-based harness
+  (`test_harness_cp4.js`), covering: fresh-install warehouse seeding;
+  backward-compatible migration of a pre-checkpoint-4 `ss_db` blob
+  (existing stock keys, users, products, receipts, transfers all
+  preserved); an already-migrated blob being left untouched; default
+  warehouse get/set; add/rename/remove for both warehouses and locations,
+  including every safety rule above; `allLocs()`/`locOptions()` reading
+  live `DB.warehouses`; and a full Receipt/Delivery/Transfer/Adjustment
+  regression pass (including duplicate-validate no-ops, insufficient
+  stock, missing adjustment reason, and zero-delta adjustment) confirming
+  Checkpoints 1–3 are unaffected.
+  (see `DEVELOPMENT_STATUS.md` → Testing Status for the full run).
+
+### Git Commit
+
+- Not yet committed — delivered as updated files for the user to apply on
+  top of `b41a228` (checkpoint 3) on branch `balaji`, per the user's
+  workflow (commit only when explicitly requested).
+
 ## [2026-09-26] — checkpoint 3
 
 ### Added
@@ -62,8 +127,8 @@
 
 ### Git Commit
 
-- Not yet committed — delivered as updated files for the user to apply on
-  top of the existing `balaji` branch state, per the continuation prompt.
+- Committed and pushed to `origin/balaji` as `b41a228` — "Implement
+  transfer and adjustment lifecycle".
 
 ## [2026-09-26] — checkpoint 2
 
@@ -99,8 +164,8 @@
 
 ### Git Commit
 
-- Not yet committed — delivered as updated files for the user to apply on
-  top of `bb3bda3` on branch `balaji`.
+- Committed and pushed to `origin/balaji` as `0788e97` — "Implement
+  receipt and delivery lifecycle".
 
 ## [2026-09-26]
 
