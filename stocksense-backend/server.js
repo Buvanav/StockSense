@@ -30,6 +30,24 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/ledger', ledgerRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
+// Friendly root endpoint for browser visits
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ONLINE',
+    app: 'StockSense Enterprise IMS Backend API',
+    version: '1.0.0',
+    documentation: {
+      health: 'GET /api/health',
+      auth: '/api/auth (login, signup, otp/request, otp/verify)',
+      products: 'GET/POST /api/products',
+      warehouses: 'GET/POST /api/warehouses',
+      documents: 'GET/POST /api/documents, POST /api/documents/:id/validate',
+      ledger: 'GET /api/ledger',
+      dashboard: 'GET /api/dashboard/kpis'
+    }
+  });
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'StockSense API Server is running cleanly' });

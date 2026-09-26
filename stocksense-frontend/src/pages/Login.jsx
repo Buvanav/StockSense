@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Package, Lock, Mail, ArrowRight, Eye, EyeOff, ShieldCheck, KeyRound, Check } from 'lucide-react';
+import { Package, Lock, Mail, ArrowRight, Eye, EyeOff, ShieldCheck, KeyRound, Check, Loader2 } from 'lucide-react';
 import EmailDrawer from '../components/EmailDrawer';
 
 export default function Login() {
@@ -9,6 +9,7 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
   
   // OTP state
   const [otpStep, setOtpStep] = useState(1); // 1: request, 2: verify
@@ -21,36 +22,50 @@ export default function Login() {
   const { login, loginWithOtp, generateOtp } = useAuth();
   const navigate = useNavigate();
 
-  // Demo auto-fill helper
+  // Quick demo auto-fill helper
   const handleQuickDemo = (demoEmail, demoPass) => {
     setEmail(demoEmail);
     setPassword(demoPass);
     setError('');
   };
 
-  const handlePasswordSubmit = (e) => {
+  async function handlePasswordSubmit(e) {
     e.preventDefault();
     setError('');
-    const res = login(email, password);
-    if (res.ok) {
-      navigate('/dashboard');
-    } else {
-      setError(res.error);
+    setLoading(true);
+    try {
+      const res = await login(email, password);
+      if (res.ok) {
+        navigate('/dashboard');
+      } else {
+        setError(res.error || 'Invalid credentials');
+      }
+    } catch (err) {
+      setError('Connection failed. Make sure backend server is running on port 3001.');
+    } finally {
+      setLoading(false);
     }
-  };
+  }
 
-  const handleSendOtp = (e) => {
+  async function handleSendOtp(e) {
     e.preventDefault();
     setError('');
     if (!email) {
       setError('Please enter your email address');
       return;
     }
-    generateOtp(email, 'login');
-    setOtpStep(2);
-    setInfo(`6-digit code sent to ${email}`);
-    startResendTimer();
-  };
+    setLoading(true);
+    try {
+      await generateOtp(email, 'login');
+      setOtpStep(2);
+      setInfo(`6-digit code dispatched to ${email}`);
+      startResendTimer();
+    } catch (err) {
+      setError('Could not send OTP code.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   const startResendTimer = () => {
     setResendTimer(60);
@@ -65,16 +80,23 @@ export default function Login() {
     }, 1000);
   };
 
-  const handleVerifyOtpSubmit = (e) => {
+  async function handleVerifyOtpSubmit(e) {
     e.preventDefault();
     setError('');
-    const res = loginWithOtp(email, otpInput);
-    if (res.ok) {
-      navigate('/dashboard');
-    } else {
-      setError(res.error);
+    setLoading(true);
+    try {
+      const res = await loginWithOtp(email, otpInput);
+      if (res.ok) {
+        navigate('/dashboard');
+      } else {
+        setError(res.error || 'Invalid OTP code');
+      }
+    } catch (err) {
+      setError('OTP verification failed.');
+    } finally {
+      setLoading(false);
     }
-  };
+  }
 
   return (
     <div className="auth-wrap">
@@ -158,8 +180,8 @@ export default function Login() {
               </div>
             </div>
 
-            <button type="submit" className="btn-primary" style={{ width: '100%', marginTop: 12, height: 44 }}>
-              Sign In <ArrowRight size={16} />
+            <button type="submit" className="btn-primary" disabled={loading} style={{ width: '100%', marginTop: 12, height: 44 }}>
+              {loading ? 'Authenticating...' : 'Sign In'} <ArrowRight size={16} />
             </button>
           </form>
         ) : (
@@ -180,8 +202,8 @@ export default function Login() {
                     />
                   </div>
                 </div>
-                <button type="submit" className="btn-primary" style={{ width: '100%', marginTop: 12, height: 44 }}>
-                  Send Verification Code <KeyRound size={16} />
+                <button type="submit" className="btn-primary" disabled={loading} style={{ width: '100%', marginTop: 12, height: 44 }}>
+                  {loading ? 'Sending Code...' : 'Send Verification Code'} <KeyRound size={16} />
                 </button>
               </form>
             ) : (
@@ -198,8 +220,8 @@ export default function Login() {
                     required
                   />
                 </div>
-                <button type="submit" className="btn-primary" style={{ width: '100%', marginTop: 12, height: 44 }}>
-                  Verify & Sign In <ShieldCheck size={16} />
+                <button type="submit" className="btn-primary" disabled={loading} style={{ width: '100%', marginTop: 12, height: 44 }}>
+                  {loading ? 'Verifying Code...' : 'Verify & Sign In'} <ShieldCheck size={16} />
                 </button>
                 <div style={{ textAlign: 'center', marginTop: 14 }}>
                   <button
@@ -225,7 +247,7 @@ export default function Login() {
               type="button"
               className="btn-outline btn-sm"
               style={{ flex: 1, fontSize: 12 }}
-              onClick={() => handleQuickDemo('admin@stocksense.com', 'password123')}
+              onClick={() => handleQuickDemo('admin@stocksense.com', 'admin123')}
             >
               <Check size={12} /> Inventory Manager
             </button>
@@ -233,7 +255,7 @@ export default function Login() {
               type="button"
               className="btn-outline btn-sm"
               style={{ flex: 1, fontSize: 12 }}
-              onClick={() => handleQuickDemo('sarah@stocksense.com', 'password123')}
+              onClick={() => handleQuickDemo('staff@stocksense.com', 'staff123')}
             >
               <Check size={12} /> Warehouse Staff
             </button>
