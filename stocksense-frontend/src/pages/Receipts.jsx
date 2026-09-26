@@ -4,20 +4,20 @@ import StatusBadge from '../components/StatusBadge';
 import { ArrowDownLeft, Plus, X, CheckCircle2, Trash2, Building2 } from 'lucide-react';
 
 export default function Receipts() {
-  const { products, warehouses, documents, createDocument, updateDocumentStatus, applyStockChange } = useInventory();
+  const { products, warehouses, documents, createDocument, validateDocument } = useInventory();
   const [showModal, setShowModal] = useState(false);
   const [supplier, setSupplier] = useState('');
-  const [warehouseId, setWarehouseId] = useState(warehouses[0]?.id || 'wh1');
-  const [lines, setLines] = useState([{ productId: products[0]?.id || 'p1', qty: '10' }]);
+  const [warehouseId, setWarehouseId] = useState(warehouses[0]?.id || 1);
+  const [lines, setLines] = useState([{ product_id: products[0]?.id || 1, quantity: 10 }]);
 
-  const receipts = documents.filter(d => d.type === 'Receipt');
+  const receipts = documents.filter(d => d.type === 'receipt');
 
   function updateLine(i, field, value) {
     setLines(prev => prev.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)));
   }
 
   function addLine() {
-    setLines(prev => [...prev, { productId: products[0]?.id || 'p1', qty: '10' }]);
+    setLines(prev => [...prev, { product_id: products[0]?.id || 1, quantity: 10 }]);
   }
 
   function removeLine(i) {
@@ -25,23 +25,31 @@ export default function Receipts() {
     setLines(prev => prev.filter((_, idx) => idx !== i));
   }
 
-  function createReceipt(e) {
+  async function handleCreateReceipt(e) {
     e.preventDefault();
     if (!supplier) return;
-    createDocument({
-      type: 'Receipt',
-      supplier,
-      warehouseId,
-      lines: lines.filter(l => Number(l.qty) > 0),
-    });
-    setSupplier('');
-    setLines([{ productId: products[0]?.id || 'p1', qty: '10' }]);
-    setShowModal(false);
+    try {
+      await createDocument({
+        type: 'receipt',
+        supplier,
+        dest_warehouse_id: Number(warehouseId),
+        status: 'Waiting',
+        items: lines.map(l => ({ product_id: Number(l.product_id), quantity: Number(l.quantity) }))
+      });
+      setSupplier('');
+      setLines([{ product_id: products[0]?.id || 1, quantity: 10 }]);
+      setShowModal(false);
+    } catch (err) {
+      console.error(err);
+    }
   }
 
-  function validate(doc) {
-    doc.lines.forEach(l => applyStockChange(l.productId, doc.warehouseId, Number(l.qty), doc.id));
-    updateDocumentStatus(doc.id, 'Done');
+  async function handleValidate(docId) {
+    try {
+      await validateDocument(docId);
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   return (
@@ -78,26 +86,27 @@ export default function Receipts() {
             <tbody>
               {receipts.map(d => (
                 <tr key={d.id}>
-                  <td style={{ fontWeight: 700, fontFamily: 'monospace' }}>{d.id}</td>
-                  <td style={{ fontWeight: 600 }}>{d.supplier}</td>
+                  <td style={{ fontWeight: 700, fontFamily: 'monospace' }}>{d.doc_number}</td>
+                  <td style={{ fontWeight: 600 }}>{d.supplier || 'N/A'}</td>
                   <td>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                       <Building2 size={14} color="var(--text-muted)" />
-                      {warehouses.find(w => w.id === d.warehouseId)?.name}
+                      {d.dest_warehouse_name || 'Main Warehouse'}
                     </div>
                   </td>
                   <td>
                     <StatusBadge status={d.status} />
                   </td>
                   <td style={{ fontSize: 13, color: 'var(--text-muted)' }}>
-                    {d.lines.map(l => {
-                      const pName = products.find(p => p.id === l.productId)?.name;
-                      return `${pName} (${l.qty})`;
-                    }).join(', ')}
+                    {d.items && d.items.length > 0 ? (
+                      d.items.map(l => `${l.product_name} (${l.quantity} ${l.product_uom || ''})`).join(', ')
+                    ) : (
+                      'No line items'
+                    )}
                   </td>
                   <td>
                     {d.status !== 'Done' ? (
-                      <button className="btn-primary btn-sm" onClick={() => validate(d)}>
+                      <button className="btn-primary btn-sm" onClick={() => handleValidate(d.id)}>
                         <CheckCircle2 size={14} /> Validate & Add Stock
                       </button>
                     ) : (
@@ -130,14 +139,14 @@ export default function Receipts() {
               </button>
             </div>
 
-            <form onSubmit={createReceipt}>
+            <form onSubmit={handleCreateReceipt}>
               <div className="row-line">
                 <div>
                   <label>Supplier Vendor Name</label>
                   <input
                     value={supplier}
                     onChange={e => setSupplier(e.target.value)}
-                    placeholder="Acme Industrial Supplies"
+                    placeholder="Apex Steel Supplies"
                     required
                   />
                 </div>
@@ -160,7 +169,7 @@ export default function Receipts() {
               {lines.map((l, i) => (
                 <div className="row-line" key={i}>
                   <div>
-                    <select value={l.productId} onChange={e => updateLine(i, 'productId', e.target.value)}>
+                    <select value={l.product_id} onChange={e => updateLine(i, 'product_id', e.target.value)}>
                       {products.map(p => (
                         <option key={p.id} value={p.id}>
                           {p.name} ({p.sku})
@@ -172,8 +181,8 @@ export default function Receipts() {
                     <input
                       type="number"
                       placeholder="Qty"
-                      value={l.qty}
-                      onChange={e => updateLine(i, 'qty', e.target.value)}
+                      value={l.quantity}
+                      onChange={e => updateLine(i, 'quantity', e.target.value)}
                       required
                     />
                   </div>
@@ -199,7 +208,7 @@ export default function Receipts() {
                   Cancel
                 </button>
                 <button type="submit" className="btn-primary">
-                  Create Draft Receipt
+                  Create Receipt Order
                 </button>
               </div>
             </form>

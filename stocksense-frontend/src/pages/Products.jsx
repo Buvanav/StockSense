@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useInventory } from '../context/InventoryContext';
-import { Package, Plus, Search, Filter, AlertTriangle, Sparkles, X, Building2 } from 'lucide-react';
+import { Package, Plus, Search, AlertTriangle, Sparkles, X, Building2 } from 'lucide-react';
 
 export default function Products() {
   const { products, warehouses, addProduct } = useInventory();
@@ -15,7 +15,7 @@ export default function Products() {
     category: 'Finished Goods',
     uom: 'pcs',
     initialStock: '',
-    initialWarehouse: warehouses[0]?.id || 'wh1',
+    initialWarehouse: warehouses[0]?.id || 1,
   });
 
   // Extract unique categories
@@ -45,26 +45,30 @@ export default function Products() {
     setForm(prev => ({ ...prev, sku: `${prefix}-${random}` }));
   };
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
     if (!form.name || !form.sku) return;
-    addProduct({
-      name: form.name,
-      sku: form.sku,
-      category: form.category || 'Uncategorized',
-      uom: form.uom,
-      initialStock: form.initialStock ? Number(form.initialStock) : 0,
-      initialWarehouse: form.initialWarehouse,
-    });
-    setForm({
-      name: '',
-      sku: '',
-      category: 'Finished Goods',
-      uom: 'pcs',
-      initialStock: '',
-      initialWarehouse: warehouses[0]?.id || 'wh1',
-    });
-    setShowModal(false);
+    try {
+      await addProduct({
+        name: form.name,
+        sku: form.sku,
+        category: form.category || 'General',
+        uom: form.uom,
+        initial_stock: form.initialStock ? Number(form.initialStock) : 0,
+        warehouse_id: Number(form.initialWarehouse),
+      });
+      setForm({
+        name: '',
+        sku: '',
+        category: 'Finished Goods',
+        uom: 'pcs',
+        initialStock: '',
+        initialWarehouse: warehouses[0]?.id || 1,
+      });
+      setShowModal(false);
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   return (
@@ -139,8 +143,8 @@ export default function Products() {
             </thead>
             <tbody>
               {filteredProducts.map(p => {
-                const total = Object.values(p.stock).reduce((a, b) => a + b, 0);
-                const isLow = total <= 20;
+                const total = p.stock !== undefined ? p.stock : 0;
+                const isLow = total <= (p.reorder_level || 10);
 
                 return (
                   <tr key={p.id}>
@@ -166,11 +170,14 @@ export default function Products() {
                       <span className="badge draft">{p.category}</span>
                     </td>
                     <td>{p.uom}</td>
-                    {warehouses.map(w => (
-                      <td key={w.id} style={{ fontWeight: 600 }}>
-                        {p.stock[w.id] || 0}
-                      </td>
-                    ))}
+                    {warehouses.map(w => {
+                      const qtyInLocation = p.locations ? (p.locations[w.name] || 0) : 0;
+                      return (
+                        <td key={w.id} style={{ fontWeight: 600 }}>
+                          {qtyInLocation}
+                        </td>
+                      );
+                    })}
                     <td>
                       <span style={{
                         display: 'inline-flex',

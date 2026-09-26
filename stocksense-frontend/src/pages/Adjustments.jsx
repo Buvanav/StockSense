@@ -1,39 +1,49 @@
 import { useState } from 'react';
 import { useInventory } from '../context/InventoryContext';
-import { SlidersHorizontal, Plus, X, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import StatusBadge from '../components/StatusBadge';
+import { Sliders, Plus, X, CheckCircle2 } from 'lucide-react';
 
 export default function Adjustments() {
-  const { products, warehouses, documents, createDocument, applyStockChange } = useInventory();
+  const { products, warehouses, documents, createDocument, validateDocument } = useInventory();
   const [showModal, setShowModal] = useState(false);
-  const [productId, setProductId] = useState(products[0]?.id || 'p1');
-  const [warehouseId, setWarehouseId] = useState(warehouses[0]?.id || 'wh1');
-  const [countedQty, setCountedQty] = useState('');
-  const [reason, setReason] = useState('');
+  const [warehouseId, setWarehouseId] = useState(warehouses[0]?.id || 1);
+  const [productId, setProductId] = useState(products[0]?.id || 1);
+  const [countedQty, setCountedQty] = useState('15');
+  const [reason, setReason] = useState('Physical count audit');
 
-  const adjustments = documents.filter(d => d.type === 'Adjustment');
-  const selectedProduct = products.find(p => p.id === productId);
-  const recordedCurrent = selectedProduct?.stock[warehouseId] || 0;
-  const calculatedDelta = countedQty !== '' ? Number(countedQty) - recordedCurrent : 0;
+  const adjustments = documents.filter(d => d.type === 'adjustment');
 
-  function submit(e) {
+  const selectedProduct = products.find(p => p.id === Number(productId)) || products[0];
+  const currentStock = selectedProduct ? (selectedProduct.stock || 0) : 0;
+
+  async function handleCreateAdjustment(e) {
     e.preventDefault();
-    if (countedQty === '') return;
-    const delta = calculatedDelta;
+    try {
+      await createDocument({
+        type: 'adjustment',
+        source_warehouse_id: Number(warehouseId),
+        reason,
+        status: 'Waiting',
+        items: [
+          {
+            product_id: Number(productId),
+            quantity: currentStock,
+            counted_qty: Number(countedQty)
+          }
+        ]
+      });
+      setShowModal(false);
+    } catch (err) {
+      console.error(err);
+    }
+  }
 
-    const docId = createDocument({
-      type: 'Adjustment',
-      productId,
-      warehouseId,
-      recorded: recordedCurrent,
-      counted: Number(countedQty),
-      delta,
-      reason: reason || 'Physical Count Audit',
-      status: 'Done',
-    });
-    applyStockChange(productId, warehouseId, delta, docId);
-    setCountedQty('');
-    setReason('');
-    setShowModal(false);
+  async function handleValidate(docId) {
+    try {
+      await validateDocument(docId);
+    } catch (err) {
+      console.error(err);
+    }
   }
 
   return (
@@ -42,14 +52,14 @@ export default function Adjustments() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
           <div>
             <h2 style={{ fontSize: 20, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <SlidersHorizontal size={22} className="text-primary" /> Physical Stock Adjustments
+              <Sliders size={22} className="text-primary" /> Physical Stock Adjustments
             </h2>
             <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 2 }}>
-              Reconcile discrepancy between physical warehouse counts and system database balance
+              Reconcile physical inventory counts against system records (damaged goods, lost stock, cycle counts)
             </p>
           </div>
           <button className="btn-primary" onClick={() => setShowModal(true)}>
-            <Plus size={16} /> New Adjustment Audit
+            <Plus size={16} /> New Stock Adjustment
           </button>
         </div>
       </div>
@@ -59,47 +69,51 @@ export default function Adjustments() {
           <table>
             <thead>
               <tr>
-                <th>Audit Doc #</th>
-                <th>Product</th>
-                <th>Warehouse</th>
-                <th>System Record</th>
-                <th>Physical Count</th>
-                <th>Computed Delta</th>
-                <th>Reason / Notes</th>
+                <th>Adjustment Doc #</th>
+                <th>Target Location</th>
+                <th>Reason / Audit Note</th>
+                <th>Status</th>
+                <th>Product & Count Difference</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {adjustments.map(d => {
-                const prod = products.find(p => p.id === d.productId);
-                const wh = warehouses.find(w => w.id === d.warehouseId);
-
-                return (
-                  <tr key={d.id}>
-                    <td style={{ fontWeight: 700, fontFamily: 'monospace' }}>{d.id}</td>
-                    <td style={{ fontWeight: 600 }}>{prod?.name || 'Item'}</td>
-                    <td>{wh?.name}</td>
-                    <td>{d.recorded} {prod?.uom}</td>
-                    <td style={{ fontWeight: 700 }}>{d.counted} {prod?.uom}</td>
-                    <td>
-                      <span style={{
-                        fontWeight: 800,
-                        padding: '4px 10px',
-                        borderRadius: 99,
-                        fontSize: 13,
-                        background: d.delta < 0 ? 'var(--danger-light)' : 'var(--success-light)',
-                        color: d.delta < 0 ? 'var(--danger-text)' : 'var(--success-text)',
-                      }}>
-                        {d.delta > 0 ? `+${d.delta}` : d.delta} {prod?.uom}
+              {adjustments.map(d => (
+                <tr key={d.id}>
+                  <td style={{ fontWeight: 700, fontFamily: 'monospace' }}>{d.doc_number}</td>
+                  <td style={{ fontWeight: 600 }}>{d.source_warehouse_name || 'Main Warehouse'}</td>
+                  <td style={{ fontSize: 13, color: 'var(--text-muted)' }}>{d.reason || 'Inventory count reconciliation'}</td>
+                  <td>
+                    <StatusBadge status={d.status} />
+                  </td>
+                  <td style={{ fontSize: 13 }}>
+                    {d.items && d.items.length > 0 ? (
+                      d.items.map(l => (
+                        <span key={l.id}>
+                          <strong>{l.product_name}</strong> (Physical Count: {l.counted_qty ?? l.quantity})
+                        </span>
+                      ))
+                    ) : (
+                      'No line items'
+                    )}
+                  </td>
+                  <td>
+                    {d.status !== 'Done' ? (
+                      <button className="btn-primary btn-sm" onClick={() => handleValidate(d.id)}>
+                        <CheckCircle2 size={14} /> Validate & Reconcile
+                      </button>
+                    ) : (
+                      <span style={{ color: 'var(--success-text)', fontSize: 13, fontWeight: 700 }}>
+                        Reconciled & Logged
                       </span>
-                    </td>
-                    <td style={{ fontSize: 13, color: 'var(--text-muted)' }}>{d.reason}</td>
-                  </tr>
-                );
-              })}
+                    )}
+                  </td>
+                </tr>
+              ))}
               {adjustments.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
-                    No stock adjustments logged yet.
+                  <td colSpan={6} style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
+                    No stock adjustments performed yet.
                   </td>
                 </tr>
               )}
@@ -112,26 +126,16 @@ export default function Adjustments() {
         <div className="modal-backdrop" onClick={() => setShowModal(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <div className="modal-title">New Stock Adjustment Audit</div>
+              <div className="modal-title">Record Stock Adjustment</div>
               <button className="btn-ghost" style={{ padding: 4 }} onClick={() => setShowModal(false)}>
                 <X size={18} />
               </button>
             </div>
 
-            <form onSubmit={submit}>
+            <form onSubmit={handleCreateAdjustment}>
               <div className="row-line">
                 <div>
-                  <label>Product</label>
-                  <select value={productId} onChange={e => setProductId(e.target.value)}>
-                    {products.map(p => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.sku})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label>Warehouse</label>
+                  <label>Audit Warehouse Location</label>
                   <select value={warehouseId} onChange={e => setWarehouseId(e.target.value)}>
                     {warehouses.map(w => (
                       <option key={w.id} value={w.id}>
@@ -140,52 +144,50 @@ export default function Adjustments() {
                     ))}
                   </select>
                 </div>
+                <div>
+                  <label>Product Item</label>
+                  <select value={productId} onChange={e => setProductId(e.target.value)}>
+                    {products.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.sku})
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              <div style={{ background: 'var(--bg-subtle)', padding: 12, borderRadius: 8, marginBottom: 14, fontSize: 13 }}>
-                <div>System Recorded Balance: <strong>{recordedCurrent} {selectedProduct?.uom}</strong></div>
+              <div className="row-line" style={{ marginTop: 12 }}>
+                <div>
+                  <label>System Recorded Quantity</label>
+                  <input value={`${currentStock} ${selectedProduct?.uom || ''}`} disabled style={{ background: 'var(--bg-card-hover)' }} />
+                </div>
+                <div>
+                  <label>Actual Physical Counted Qty</label>
+                  <input
+                    type="number"
+                    value={countedQty}
+                    onChange={e => setCountedQty(e.target.value)}
+                    required
+                  />
+                </div>
               </div>
 
-              <div className="field">
-                <label>Physical Counted Quantity</label>
+              <div style={{ marginTop: 12 }}>
+                <label>Adjustment Reason (e.g. 3 kg steel damaged)</label>
                 <input
-                  type="number"
-                  value={countedQty}
-                  onChange={e => setCountedQty(e.target.value)}
-                  placeholder={`Recorded: ${recordedCurrent}`}
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  placeholder="Damaged stock / shrinkage / physical count audit"
                   required
                 />
               </div>
 
-              {countedQty !== '' && (
-                <div style={{
-                  padding: '10px 14px',
-                  borderRadius: 8,
-                  marginBottom: 14,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  background: calculatedDelta < 0 ? 'var(--danger-light)' : 'var(--success-light)',
-                  color: calculatedDelta < 0 ? 'var(--danger-text)' : 'var(--success-text)'
-                }}>
-                  Net Adjustment Delta: {calculatedDelta > 0 ? `+${calculatedDelta}` : calculatedDelta} {selectedProduct?.uom}
-                </div>
-              )}
-
-              <div className="field">
-                <label>Reason / Audit Note</label>
-                <input
-                  value={reason}
-                  onChange={e => setReason(e.target.value)}
-                  placeholder="e.g. Physical inventory count discrepancy, damaged item, expired batch"
-                />
-              </div>
-
-              <div className="modal-actions">
+              <div className="modal-actions" style={{ marginTop: 20 }}>
                 <button type="button" className="btn-outline" onClick={() => setShowModal(false)}>
                   Cancel
                 </button>
                 <button type="submit" className="btn-primary">
-                  Apply Adjustment & Log Ledger
+                  Save Adjustment Record
                 </button>
               </div>
             </form>
