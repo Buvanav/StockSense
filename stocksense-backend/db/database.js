@@ -95,24 +95,29 @@ function initDb() {
     // Column already exists
   }
 
-  // Seed default admin user if not existing
-  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
-  if (userCount === 0) {
-    const salt = bcrypt.genSaltSync(10);
+  // Always guarantee demo users exist (INSERT OR IGNORE = safe upsert)
+  const salt = bcrypt.genSaltSync(10);
+
+  const adminExists = db.prepare('SELECT id FROM users WHERE email = ?').get('admin@stocksense.com');
+  if (!adminExists) {
     const hash = bcrypt.hashSync('admin123', salt);
     db.prepare(`
       INSERT INTO users (name, email, password_hash, role, is_verified)
       VALUES ('Admin User', 'admin@stocksense.com', ?, 'Inventory Manager', 1)
     `).run(hash);
-    console.log('Seeded default admin user: admin@stocksense.com / admin123 (Role: Inventory Manager)');
+    console.log('Seeded demo admin: admin@stocksense.com / admin123');
+  }
 
+  const staffExists = db.prepare('SELECT id FROM users WHERE email = ?').get('staff@stocksense.com');
+  if (!staffExists) {
     const staffHash = bcrypt.hashSync('staff123', salt);
     db.prepare(`
       INSERT INTO users (name, email, password_hash, role, is_verified)
       VALUES ('Warehouse Operator', 'staff@stocksense.com', ?, 'Warehouse Staff', 1)
     `).run(staffHash);
-    console.log('Seeded default staff user: staff@stocksense.com / staff123 (Role: Warehouse Staff)');
+    console.log('Seeded demo staff: staff@stocksense.com / staff123');
   }
+
 
   // Seed default warehouses if empty
   const whCount = db.prepare('SELECT COUNT(*) as count FROM warehouses').get().count;
