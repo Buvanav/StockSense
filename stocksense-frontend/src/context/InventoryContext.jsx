@@ -1,86 +1,159 @@
-import { createContext, useContext, useState, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
 const InventoryContext = createContext(null);
-
-// ---- Seed / mock data (replace with real API calls once backend is ready) ----
-const seedWarehouses = [
-  { id: 'wh1', name: 'Main Warehouse' },
-  { id: 'wh2', name: 'Production Floor' },
-  { id: 'wh3', name: 'Warehouse 2' },
-];
-
-const seedProducts = [
-  { id: 'p1', name: 'Steel Rods', sku: 'STL-001', category: 'Raw Material', uom: 'kg', stock: { wh1: 150, wh2: 0, wh3: 0 } },
-  { id: 'p2', name: 'Chairs', sku: 'CHR-010', category: 'Finished Goods', uom: 'pcs', stock: { wh1: 40, wh2: 0, wh3: 12 } },
-  { id: 'p3', name: 'Steel Frames', sku: 'FRM-004', category: 'Finished Goods', uom: 'pcs', stock: { wh1: 25, wh2: 5, wh3: 0 } },
-];
-
-let idCounter = 1000;
-const nextId = (prefix) => `${prefix}${idCounter++}`;
+const API_URL = 'http://localhost:3001/api';
 
 export function InventoryProvider({ children }) {
-  const [warehouses] = useState(seedWarehouses);
-  const [products, setProducts] = useState(seedProducts);
-  const [documents, setDocuments] = useState([]); // receipts, deliveries, transfers, adjustments
-  const [ledger, setLedger] = useState([]); // append-only log
+  const [warehouses, setWarehouses] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [documents, setDocuments] = useState([]);
+  const [ledger, setLedger] = useState([]);
+  const [kpis, setKpis] = useState({
+    totalProducts: 0,
+    totalStockUnits: 0,
+    lowStockItems: 0,
+    outOfStockItems: 0,
+    pendingReceipts: 0,
+    pendingDeliveries: 0,
+    pendingTransfers: 0
+  });
+  const [loading, setLoading] = useState(true);
 
-  // The ONE function that ever changes stock — every operation module calls this.
-  function applyStockChange(productId, warehouseId, qtyDelta, documentRef) {
-    setProducts(prev =>
-      prev.map(p =>
-        p.id === productId
-          ? { ...p, stock: { ...p.stock, [warehouseId]: (p.stock[warehouseId] || 0) + qtyDelta } }
-          : p
-      )
-    );
-    setLedger(prev => [
-      ...prev,
-      { id: nextId('led'), productId, warehouseId, qtyDelta, documentRef, timestamp: new Date().toISOString() },
-    ]);
+  // Fetch all backend data from SQLite
+  const refreshAll = useCallback(async () => {
+    try {
+      setLoading(true);
+      const [whRes, prodRes, docRes, ledRes, kpiRes] = await Promise.all([
+        fetch(`${API_URL}/warehouses`),
+        fetch(`${API_URL}/products`),
+        fetch(`${API_URL}/documents`),
+        fetch(`${API_URL}/ledger`),
+        fetch(`${API_URL}/dashboard/kpis`)
+      ]);
+
+      if (whRes.ok) setWarehouses(await whRes.json());
+      if (prodRes.ok) setProducts(await prodRes.json());
+      if (docRes.ok) setDocuments(await docRes.json());
+      if (ledRes.ok) setLedger(await ledRes.json());
+      if (kpiRes.ok) setKpis(await kpiRes.json());
+    } catch (err) {
+      console.error('Error fetching inventory data from backend:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshAll();
+  }, [refreshAll]);
+
+  // Create Product on backend
+  async function addProduct(productData) {
+    try {
+      const res = await fetch(`${API_URL}/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(productData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to add product');
+      await refreshAll();
+      return data;
+    } catch (err) {
+      alert(err.message);
+      throw err;
+    }
   }
 
-  function createDocument(doc) {
-    const newDoc = { id: nextId('doc'), status: 'Draft', createdAt: new Date().toISOString(), ...doc };
-    setDocuments(prev => [newDoc, ...prev]);
-    return newDoc.id;
+  // Create Warehouse on backend
+  async function addWarehouse(whData) {
+    try {
+      const res = await fetch(`${API_URL}/warehouses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(whData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create warehouse');
+      await refreshAll();
+      return data;
+    } catch (err) {
+      alert(err.message);
+      throw err;
+    }
   }
 
-  function updateDocumentStatus(docId, status) {
-    setDocuments(prev => prev.map(d => (d.id === docId ? { ...d, status } : d)));
+  // Create Document (Receipt, Delivery, Transfer, Adjustment)
+  async function createDocument(docData) {
+    try {
+      const res = await fetch(`${API_URL}/documents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(docData)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create document');
+      await refreshAll();
+      return data;
+    } catch (err) {
+      alert(err.message);
+      throw err;
+    }
   }
 
-  function addProduct(product) {
-    setProducts(prev => [
-      ...prev,
-      {
-        id: nextId('p'),
-        stock: { wh1: 0, wh2: 0, wh3: 0, ...(product.initialStock ? { [product.initialWarehouse]: product.initialStock } : {}) },
-        ...product,
-      },
-    ]);
+  // Validate Document -> Strong Backend Stock Update + Ledger Logging
+  async function validateDocument(docId) {
+    try {
+      const res = await fetch(`${API_URL}/documents/${docId}/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to validate document');
+      await refreshAll();
+      return data;
+    } catch (err) {
+      alert(err.message);
+      throw err;
+    }
   }
 
-  const totalStock = useMemo(
-    () => products.reduce((sum, p) => sum + Object.values(p.stock).reduce((a, b) => a + b, 0), 0),
-    [products]
-  );
+  // Update Document status (Draft, Waiting, Ready, Canceled)
+  async function updateDocumentStatus(docId, status) {
+    try {
+      const res = await fetch(`${API_URL}/documents/${docId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update status');
+      await refreshAll();
+      return data;
+    } catch (err) {
+      alert(err.message);
+      throw err;
+    }
+  }
 
-  const lowStock = useMemo(
-    () => products.filter(p => Object.values(p.stock).reduce((a, b) => a + b, 0) <= 20),
-    [products]
-  );
+  const totalStock = kpis.totalStockUnits || products.reduce((sum, p) => sum + (p.stock || 0), 0);
+  const lowStock = products.filter(p => (p.stock || 0) <= (p.reorder_level || 10));
 
   const value = {
     warehouses,
     products,
     documents,
     ledger,
+    kpis,
+    loading,
     totalStock,
     lowStock,
-    applyStockChange,
-    createDocument,
-    updateDocumentStatus,
+    refreshAll,
     addProduct,
+    addWarehouse,
+    createDocument,
+    validateDocument,
+    updateDocumentStatus,
   };
 
   return <InventoryContext.Provider value={value}>{children}</InventoryContext.Provider>;

@@ -1,55 +1,26 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext(null);
-
-const SEED_USERS = [
-  {
-    name: 'Buvanesh W',
-    email: 'admin@stocksense.com',
-    password: 'password123',
-    role: 'Inventory Manager',
-    isVerified: true,
-  },
-  {
-    name: 'Sarah Connor',
-    email: 'sarah@stocksense.com',
-    password: 'password123',
-    role: 'Warehouse Staff',
-    isVerified: true,
-  },
-];
+const API_URL = 'http://localhost:3001/api';
 
 export function AuthProvider({ children }) {
-  // Load initial users from localStorage or default seed
-  const [users, setUsers] = useState(() => {
-    const saved = localStorage.getItem('stocksense_users');
-    return saved ? JSON.parse(saved) : SEED_USERS;
-  });
-
-  // Current logged in user
   const [user, setUser] = useState(() => {
     const savedSession = localStorage.getItem('stocksense_session');
     return savedSession ? JSON.parse(savedSession) : null;
   });
 
-  // Dark mode state
   const [darkMode, setDarkMode] = useState(() => {
     return localStorage.getItem('stocksense_theme') === 'dark';
   });
 
-  // Simulated email notifications (OTPs, Security Alerts)
   const [emails, setEmails] = useState([]);
-  const [activeOtpMap, setActiveOtpMap] = useState({}); // { [email_type]: code }
-
-  useEffect(() => {
-    localStorage.setItem('stocksense_users', JSON.stringify(users));
-  }, [users]);
 
   useEffect(() => {
     if (user) {
       localStorage.setItem('stocksense_session', JSON.stringify(user));
     } else {
       localStorage.removeItem('stocksense_session');
+      localStorage.removeItem('stocksense_token');
     }
   }, [user]);
 
@@ -63,127 +34,150 @@ export function AuthProvider({ children }) {
     }
   }, [darkMode]);
 
-  // Generate 6 digit OTP
-  function generateOtp(email, type = 'Verification') {
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    setActiveOtpMap(prev => ({ ...prev, [`${email}_${type}`]: otp }));
-
+  // Helper to add simulated email alert to topbar notification drawer
+  function pushEmailNotification(email, subject, otpCode, type) {
     const newEmail = {
       id: Date.now(),
       to: email,
-      subject: type === 'reset' ? 'StockSense Password Reset Code' : 'StockSense Email Verification Code',
-      otp: otp,
+      subject: subject,
+      otp: otpCode,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       type,
     };
-
     setEmails(prev => [newEmail, ...prev]);
-    return otp;
   }
 
-  function login(email, password) {
-    if (!email || !password) return { ok: false, error: 'Email and password are required' };
-    const found = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (!found) return { ok: false, error: 'No account found with this email' };
-    if (found.password !== password) return { ok: false, error: 'Invalid password' };
+  async function login(email, password) {
+    try {
+      const res = await fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: data.error || 'Login failed' };
 
-    const sessionUser = { ...found };
-    delete sessionUser.password;
-    setUser(sessionUser);
-    return { ok: true };
-  }
-
-  function loginWithOtp(email, otp) {
-    const actualOtp = activeOtpMap[`${email}_login`] || activeOtpMap[`${email}_reset`];
-    
-    if (otp !== actualOtp && otp !== '123456') {
-      return { ok: false, error: 'Invalid or expired OTP code' };
+      localStorage.setItem('stocksense_token', data.token);
+      setUser(data.user);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: 'Could not connect to authentication server' };
     }
-
-    const found = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (!found) return { ok: false, error: 'No account registered with this email' };
-
-    const sessionUser = { ...found };
-    delete sessionUser.password;
-    setUser(sessionUser);
-    return { ok: true };
   }
 
-  function signup(name, email, password, role = 'Inventory Manager') {
-    if (!name || !email || !password) return { ok: false, error: 'All fields are required' };
-    
-    const existing = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (existing) return { ok: false, error: 'An account with this email already exists' };
+  async function loginWithOtp(email, otp) {
+    try {
+      const res = await fetch(`${API_URL}/auth/otp/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code: otp })
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: data.error || 'Invalid OTP code' };
 
-    const newUser = {
-      name,
-      email,
-      password,
-      role,
-      isVerified: false,
-    };
-
-    setUsers(prev => [...prev, newUser]);
-    // Generate signup OTP
-    const otp = generateOtp(email, 'signup');
-    return { ok: true, otp, tempUser: newUser };
+      localStorage.setItem('stocksense_token', data.token);
+      setUser(data.user);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: 'Could not connect to backend server' };
+    }
   }
 
-  function verifySignupOtp(email, otp) {
-    const actualOtp = activeOtpMap[`${email}_signup`];
-    if (otp !== actualOtp && otp !== '123456') {
-      return { ok: false, error: 'Invalid verification code' };
+  async function signup(name, email, password, role = 'Inventory Manager') {
+    try {
+      // Create user on backend
+      const res = await fetch(`${API_URL}/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password, role })
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: data.error || 'Signup failed' };
+
+      // Request OTP
+      const otpRes = await fetch(`${API_URL}/auth/otp/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const otpData = await otpRes.json();
+      
+      if (otpData.otp) {
+        pushEmailNotification(email, 'StockSense Verification Code', otpData.otp, 'signup');
+      }
+
+      localStorage.setItem('stocksense_token', data.token);
+      setUser(data.user);
+      return { ok: true, otp: otpData.otp };
+    } catch (err) {
+      return { ok: false, error: 'Backend connection error' };
     }
-
-    setUsers(prev =>
-      prev.map(u => (u.email.toLowerCase() === email.toLowerCase() ? { ...u, isVerified: true } : u))
-    );
-
-    const targetUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (targetUser) {
-      const sessionUser = { ...targetUser, isVerified: true };
-      delete sessionUser.password;
-      setUser(sessionUser);
-    }
-
-    return { ok: true };
   }
 
-  function requestPasswordResetOtp(email) {
-    const found = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (!found) return { ok: false, error: 'No user registered with this email' };
-
-    const otp = generateOtp(email, 'reset');
-    return { ok: true, otp };
+  async function generateOtp(email, type = 'login') {
+    try {
+      const res = await fetch(`${API_URL}/auth/otp/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
+      if (data.otp) {
+        pushEmailNotification(email, 'StockSense Verification Code', data.otp, type);
+      }
+      return data.otp || '123456';
+    } catch (err) {
+      return '123456';
+    }
   }
 
-  function resetPassword(email, otp, newPassword) {
-    const actualOtp = activeOtpMap[`${email}_reset`];
-    if (otp !== actualOtp && otp !== '123456') {
-      return { ok: false, error: 'Invalid reset OTP' };
+  async function verifySignupOtp(email, otp) {
+    return loginWithOtp(email, otp);
+  }
+
+  async function requestPasswordResetOtp(email) {
+    try {
+      const res = await fetch(`${API_URL}/auth/otp/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: data.error || 'Could not send OTP' };
+
+      if (data.otp) {
+        pushEmailNotification(email, 'StockSense Password Reset Code', data.otp, 'reset');
+      }
+      return { ok: true, otp: data.otp };
+    } catch (err) {
+      return { ok: false, error: 'Backend connection error' };
     }
+  }
 
-    if (!newPassword || newPassword.length < 6) {
-      return { ok: false, error: 'Password must be at least 6 characters long' };
+  async function resetPassword(email, otp, newPassword) {
+    try {
+      const res = await fetch(`${API_URL}/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code: otp, newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: data.error || 'Reset failed' };
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: 'Backend connection error' };
     }
-
-    setUsers(prev =>
-      prev.map(u => (u.email.toLowerCase() === email.toLowerCase() ? { ...u, password: newPassword } : u))
-    );
-
-    return { ok: true };
   }
 
   function updateProfile(updatedData) {
     if (!user) return;
     setUser(prev => ({ ...prev, ...updatedData }));
-    setUsers(prev =>
-      prev.map(u => (u.email.toLowerCase() === user.email.toLowerCase() ? { ...u, ...updatedData } : u))
-    );
   }
 
   function logout() {
     setUser(null);
+    localStorage.removeItem('stocksense_session');
+    localStorage.removeItem('stocksense_token');
   }
 
   function toggleDarkMode() {
@@ -198,7 +192,6 @@ export function AuthProvider({ children }) {
     <AuthContext.Provider
       value={{
         user,
-        users,
         darkMode,
         emails,
         login,
