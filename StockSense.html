@@ -111,7 +111,9 @@ label{font-size:13px;color:var(--sub);display:block;margin-bottom:3px}
 
 <script>
 const LOC = {"Main Warehouse":["Rack A","Rack B"],"Production Warehouse":["Production Rack","Finished Goods"]};
-let DB = JSON.parse(localStorage.getItem('ss_db')||'null') || {users:[],session:null,products:[],stock:{},ledger:[],seq:1};
+let DB = JSON.parse(localStorage.getItem('ss_db')||'null') || {users:[],session:null,products:[],stock:{},ledger:[],receipts:[],deliveries:[],seq:1};
+if(!DB.receipts) DB.receipts=[];
+if(!DB.deliveries) DB.deliveries=[];
 let otpCache=null, otpUser=null;
 function save(){localStorage.setItem('ss_db',JSON.stringify(DB));}
 function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.getElementById('toastBox').appendChild(t);setTimeout(()=>t.remove(),2500);}
@@ -217,45 +219,97 @@ function addProduct(){
 function prodOptions(){return DB.products.map(p=>`<option value="${p.sku}">${p.name} (${p.sku})</option>`).join('');}
 function locOptions(){return allLocs().map(l=>`<option>${l}</option>`).join('');}
 
+// ---------- DOCUMENT LIFECYCLE (Receipts & Deliveries): Draft -> Waiting -> Ready -> Done / Canceled ----------
+// Only the 'validate' transition (Ready -> Done) ever touches stock or the ledger.
+// docAction() re-checks the document's current status before acting, so a document
+// can never apply its stock change twice and can never skip a stage.
+function docBadge(status){const c={Draft:'b-gray',Waiting:'b-gray',Ready:'b-warn',Done:'b-good',Canceled:'b-bad'}[status]||'b-gray';return `<span class="badge ${c}">${status}</span>`;}
+function docActionsHtml(kind,d){
+ if(d.status==='Draft') return `<button class="btn gray" onclick="docAction('${kind}','edit','${d.id}')">Edit</button> <button class="btn" onclick="docAction('${kind}','submit','${d.id}')">Submit</button> <button class="btn red" onclick="docAction('${kind}','cancel','${d.id}')">Cancel</button>`;
+ if(d.status==='Waiting') return `<button class="btn" onclick="docAction('${kind}','ready','${d.id}')">Mark Ready</button> <button class="btn red" onclick="docAction('${kind}','cancel','${d.id}')">Cancel</button>`;
+ if(d.status==='Ready') return `<button class="btn" onclick="docAction('${kind}','validate','${d.id}')">Validate</button> <button class="btn red" onclick="docAction('${kind}','cancel','${d.id}')">Cancel</button>`;
+ return '<span style="color:var(--sub)">—</span>';
+}
+function docTable(kind,list){
+ return `<table><tr><th>Ref</th><th>Product</th><th>Qty</th><th>Location</th><th>Status</th><th>Actions</th></tr>
+ ${list.slice().reverse().map(d=>{const p=DB.products.find(x=>x.sku===d.sku);return `<tr><td>${d.id}</td><td>${p?p.name:d.sku}</td><td>${d.qty}</td><td>${d.loc}</td><td>${docBadge(d.status)}</td><td>${docActionsHtml(kind,d)}</td></tr>`}).join('')||`<tr><td colspan=6 style="color:var(--sub)">No ${kind}s yet</td></tr>`}
+ </table>`;
+}
+function docAction(kind,action,id){
+ const list=kind==='receipt'?DB.receipts:DB.deliveries;
+ const d=list.find(x=>x.id===id);
+ if(!d) return;
+ if(action==='cancel'){
+  if(d.status==='Done'||d.status==='Canceled') return; // terminal states can't be re-transitioned
+  d.status='Canceled';save();
+ } else if(action==='submit'){
+  if(d.status!=='Draft') return;
+  d.status='Waiting';save();
+ } else if(action==='ready'){
+  if(d.status!=='Waiting') return;
+  d.status='Ready';save();
+ } else if(action==='edit'){
+  if(d.status!=='Draft') return; // editing is only allowed before submission, and never touches stock
+  const nq=prompt('New quantity:',d.qty);
+  if(nq===null) return;
+  const nqn=Number(nq);
+  if(!nqn||nqn<=0) return toast('Quantity must be greater than 0.');
+  d.qty=nqn;save();
+ } else if(action==='validate'){
+  if(d.status!=='Ready') return; // guards against double-validation and skipping stages
+  const p=DB.products.find(x=>x.sku===d.sku);
+  if(kind==='receipt'){
+   setStock(d.sku,d.loc,getStock(d.sku,d.loc)+d.qty);
+   addLedger({ref:d.id,product:p.name,sku:d.sku,qty:d.qty,type:'Receipt',loc:d.loc,status:'Done'});
+   d.status='Done';save();toast('Receipt validated — stock increased');
+  } else {
+   const avail=getStock(d.sku,d.loc);
+   if(d.qty>avail) return toast(`Insufficient stock. Available: ${avail}, Requested: ${d.qty}`); // status stays Ready, stock untouched
+   setStock(d.sku,d.loc,avail-d.qty);
+   addLedger({ref:d.id,product:p.name,sku:d.sku,qty:-d.qty,type:'Delivery',loc:d.loc,status:'Done'});
+   d.status='Done';save();toast('Delivery validated — stock decreased');
+  }
+  kind==='receipt'?renderReceipts():renderDeliveries();renderDashboard();
+  return;
+ }
+ kind==='receipt'?renderReceipts():renderDeliveries();
+}
+
 function renderReceipts(){
  main.innerHTML=`<h1>Receipts (Incoming Stock)</h1>
- <div class="card"><div class="row">
+ <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">New Receipt</h3><div class="row">
   <select id="rProd">${prodOptions()}</select>
   <select id="rLoc">${locOptions()}</select>
   <input id="rQty" type="number" placeholder="Quantity" style="width:120px">
-  <button class="btn" onclick="doReceipt()">Validate Receipt</button>
- </div><div class="err" id="rErr"></div></div>`;
+  <button class="btn" onclick="createReceipt()">Create Draft</button>
+ </div><div class="err" id="rErr"></div></div>
+ <div class="card">${docTable('receipt',DB.receipts)}</div>`;
  if(!DB.products.length) main.innerHTML+='<p style="color:var(--sub)">Add a product first.</p>';
 }
-function doReceipt(){
+function createReceipt(){
  rErr.textContent='';const sku=rProd.value,loc=rLoc.value,qty=Number(rQty.value);
  if(!sku) return rErr.textContent='Product required.';
  if(!qty||qty<=0) return rErr.textContent='Quantity must be greater than 0.';
- setStock(sku,loc,getStock(sku,loc)+qty);
- const p=DB.products.find(x=>x.sku===sku);
- addLedger({ref:ref('REC'),product:p.name,sku,qty:qty,type:'Receipt',loc,status:'Done'});save();
- toast('Receipt validated — stock increased');renderReceipts();renderDashboard();
+ DB.receipts.push({id:ref('REC'),sku,loc,qty,status:'Draft'});save();
+ toast('Receipt created as Draft');renderReceipts();
 }
 
 function renderDeliveries(){
  main.innerHTML=`<h1>Deliveries (Outgoing Stock)</h1>
- <div class="card"><div class="row">
+ <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">New Delivery</h3><div class="row">
   <select id="dProd">${prodOptions()}</select>
   <select id="dLoc">${locOptions()}</select>
   <input id="dQty" type="number" placeholder="Quantity" style="width:120px">
-  <button class="btn" onclick="doDelivery()">Validate Delivery</button>
- </div><div class="err" id="dErr"></div></div>`;
+  <button class="btn" onclick="createDelivery()">Create Draft</button>
+ </div><div class="err" id="dErr"></div></div>
+ <div class="card">${docTable('delivery',DB.deliveries)}</div>`;
 }
-function doDelivery(){
+function createDelivery(){
  dErr.textContent='';const sku=dProd.value,loc=dLoc.value,qty=Number(dQty.value);
  if(!sku) return dErr.textContent='Product required.';
  if(!qty||qty<=0) return dErr.textContent='Quantity must be greater than 0.';
- const avail=getStock(sku,loc);
- if(qty>avail) return dErr.textContent=`Insufficient stock. Available: ${avail}, Requested: ${qty}`;
- setStock(sku,loc,avail-qty);
- const p=DB.products.find(x=>x.sku===sku);
- addLedger({ref:ref('DEL'),product:p.name,sku,qty:-qty,type:'Delivery',loc,status:'Done'});save();
- toast('Delivery validated — stock decreased');renderDeliveries();renderDashboard();
+ DB.deliveries.push({id:ref('DEL'),sku,loc,qty,status:'Draft'});save();
+ toast('Delivery created as Draft');renderDeliveries();
 }
 
 function renderTransfers(){

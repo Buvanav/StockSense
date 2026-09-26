@@ -55,17 +55,27 @@ for warehouses/locations to be manageable data.
   with a unique constraint on `(product_id, location_id)`
 
 ### Receipt / ReceiptItem
-- Currently: a receipt *is* one ledger entry of `type: "Receipt"`
-  (single product per transaction, no draft stage)
+- Currently: `DB.receipts` is an array of
+  `{ id, sku, loc, qty, status }`, where `id` is also used as the ledger
+  `ref` once validated, and `status` is one of
+  `Draft | Waiting | Ready | Done | Canceled`. Single product per
+  document (no line items yet). A ledger entry is written only when
+  `status` transitions to `Done`, and it is written exactly once — the
+  transition guard in `docAction()` (see `StockSense.html`) refuses to
+  re-run Validate on a document that isn't currently `Ready`.
 - *Planned:* `Receipt(id, ref, supplier, warehouse_id, status, created_at)`
   + `ReceiptItem(receipt_id FK, product_id FK, quantity, location_id FK)`,
-  so a receipt can hold multiple line items and move through
-  Draft → Waiting → Ready → Done → Canceled before affecting stock
+  so a receipt can hold multiple line items with the same status field
+  moving them all through the lifecycle together.
 
 ### Delivery / DeliveryItem
-- Currently: one ledger entry of `type: "Delivery"` per transaction
+- Currently: `DB.deliveries` is an array with the same shape as
+  `DB.receipts` above (`{ id, sku, loc, qty, status }`), reusing the same
+  lifecycle and the same `docAction()`/`docTable()` code. The
+  insufficient-stock check runs at the Validate transition; on failure
+  the document simply stays `Ready` and stock is untouched.
 - *Planned:* mirrors Receipt/ReceiptItem, with `customer`/`destination`
-  instead of `supplier`, and a Pick → Pack → Validate flow
+  instead of `supplier`, and a Pick → Pack step inserted before Validate
 
 ### Transfer / TransferItem
 - Currently: one ledger entry of `type: "Transfer"` with `loc` recorded as

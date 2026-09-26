@@ -75,13 +75,41 @@ Dashboard KPIs recomputed live from current state
 - **Adjustment:** physical quantity required; reason required whenever the
   physical count differs from the system count.
 
-## Status Model (current vs. planned)
+## Status Model
 
-**Current:** every operation validates immediately — there is no Draft
-stage yet. This is what currently prevents double-application (there is
-no "already validated" document sitting around to re-click).
+**Receipts and Deliveries** now follow a full lifecycle:
 
-**Planned** (see `docs/API.md` / Next Tasks in `DEVELOPMENT_STATUS.md`):
-Receipts and Deliveries should gain a Draft → Waiting → Ready → Done →
-Canceled lifecycle, with only the transition into "Done" affecting stock,
-guarded so it can only happen once per document.
+```
+Draft ──submit──▶ Waiting ──mark ready──▶ Ready ──validate──▶ Done
+  │                   │                     │
+  └──────────────────cancel─────────────────┘
+                       ▼
+                   Canceled
+```
+
+- **Draft:** created with product, location, quantity. No stock effect.
+  Quantity can be edited while in Draft. Can be submitted or cancelled.
+- **Waiting:** submitted from Draft. No stock effect. Can be marked Ready
+  or cancelled.
+- **Ready:** marked ready from Waiting. No stock effect. Can be validated
+  or cancelled.
+- **Done:** reached only via Validate from Ready. This is the *only*
+  transition that touches stock or writes a ledger entry — for a Receipt
+  it increases stock, for a Delivery it decreases stock (after checking
+  sufficient stock is available; if not, the document stays in Ready with
+  a clear error and stock is untouched). Done is terminal — no further
+  actions are available.
+- **Canceled:** reachable from Draft, Waiting, or Ready. Never affects
+  stock. Terminal — no further actions are available.
+
+Every transition re-checks the document's current status before applying,
+so:
+- Validate is a no-op if the document isn't currently Ready (this is what
+  prevents a Receipt/Delivery from ever applying its stock change twice —
+  clicking Validate again on an already-Done document does nothing).
+- Cancel is a no-op if the document is already Done or already Canceled.
+- Edit is only permitted while Draft.
+
+**Transfers and Adjustments** still validate immediately (no Draft
+stage) — this is a deliberately scoped difference for now; see Next Tasks
+in `DEVELOPMENT_STATUS.md` for extending the same lifecycle to them.
