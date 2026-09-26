@@ -49,6 +49,9 @@
   --shadow-glass: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
 
   --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Extra utility vars */
+  --bg-card-hover: #f8fafc;
 }
 
 /* Dark mode overrides */
@@ -729,4 +732,83 @@ tbody tr:hover {
   background: var(--bg-surface);
   color: var(--text-main);
   box-shadow: var(--shadow-sm);
+}
+
+/* ─── Utility Classes ─────────────────────── */
+
+/* Form field wrapper */
+.field {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+}
+
+/* Auth footer link row */
+.muted-link {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 16px;
+}
+
+.muted-link a {
+  color: var(--primary);
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+/* Icon color helper */
+.text-primary {
+  color: var(--primary);
+}
+
+.text-success { color: var(--success); }
+.text-danger  { color: var(--danger);  }
+.text-warning { color: var(--warning); }
+.text-muted   { color: var(--text-muted); }
+
+/* Spin animation for loading icons */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Dark mode card hover fix */
+body.dark-mode {
+  --bg-card-hover: #1e293b;
+}
+
+/* Scrollbar polish */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-light);
+}
+
+/* Selection color */
+::selection {
+  background: rgba(79, 70, 229, 0.2);
+  color: var(--primary);
+}
+
+/* Fade-in animation for page transitions */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+.content > * {
+  animation: fadeIn 0.25s ease-out;
 }

@@ -1,9 +1,13 @@
 import { useState } from 'react';
 import { useInventory } from '../context/InventoryContext';
-import { Settings as SettingsIcon, Building2, Plus, Bell, Mail, ShieldCheck, Check } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { Settings as SettingsIcon, Building2, Plus, Mail, ShieldCheck, Check, Lock, AlertTriangle } from 'lucide-react';
 
 export default function Settings() {
   const { warehouses } = useInventory();
+  const { user } = useAuth();
+  const isManager = user?.role === 'Inventory Manager';
+
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [otpRequired, setOtpRequired] = useState(true);
   const [lowStockThreshold, setLowStockThreshold] = useState(20);
@@ -19,16 +23,40 @@ export default function Settings() {
         </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 24 }}>
+      {!isManager && (
+        <div style={{
+          background: 'rgba(239, 68, 68, 0.08)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          color: '#dc2626',
+          borderRadius: 'var(--radius-lg)',
+          padding: '14px 20px',
+          marginBottom: 24,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12
+        }}>
+          <Lock size={20} />
+          <div>
+            <strong style={{ fontSize: 14 }}>Role Access Restriction:</strong>
+            <span style={{ fontSize: 13, marginLeft: 6, color: 'var(--text-main)' }}>
+              System Configuration & Warehouse management are restricted to <strong>Inventory Managers</strong>. You are currently logged in as <strong>Warehouse Staff</strong>.
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 24, opacity: isManager ? 1 : 0.7, pointerEvents: isManager ? 'auto' : 'none' }}>
         {/* Warehouses Card */}
         <div className="panel">
           <div className="panel-header">
             <div className="panel-title">
               <Building2 size={18} className="text-primary" /> Active Warehouses & Facilities
             </div>
-            <button className="btn-outline btn-sm" onClick={() => alert('Warehouse creation modal open')}>
-              <Plus size={14} /> Add Warehouse
-            </button>
+            {isManager && (
+              <button className="btn-outline btn-sm" onClick={() => alert('Warehouse creation form')}>
+                <Plus size={14} /> Add Warehouse
+              </button>
+            )}
           </div>
 
           <div className="table-wrapper">
@@ -78,6 +106,7 @@ export default function Settings() {
                 checked={otpRequired}
                 onChange={e => setOtpRequired(e.target.checked)}
                 style={{ width: 20, height: 20, cursor: 'pointer' }}
+                disabled={!isManager}
               />
             </div>
 
@@ -91,6 +120,7 @@ export default function Settings() {
                 checked={emailAlerts}
                 onChange={e => setEmailAlerts(e.target.checked)}
                 style={{ width: 20, height: 20, cursor: 'pointer' }}
+                disabled={!isManager}
               />
             </div>
 
@@ -100,12 +130,15 @@ export default function Settings() {
                 type="number"
                 value={lowStockThreshold}
                 onChange={e => setLowStockThreshold(Number(e.target.value))}
+                disabled={!isManager}
               />
             </div>
 
-            <button className="btn-primary" style={{ marginTop: 8 }} onClick={() => alert('Settings saved successfully!')}>
-              <Check size={16} /> Save Configuration
-            </button>
+            {isManager && (
+              <button className="btn-primary" style={{ marginTop: 8 }} onClick={() => alert('Settings saved successfully!')}>
+                <Check size={16} /> Save Configuration
+              </button>
+            )}
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   Package,
@@ -16,7 +16,13 @@ import { useAuth } from '../context/AuthContext';
 
 export default function Sidebar() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const linkClass = ({ isActive }) => (isActive ? 'active' : '');
+
+  function handleLogout() {
+    logout();
+    navigate('/login');
+  }
 
   return (
     <div className="sidebar">
@@ -95,7 +101,7 @@ export default function Sidebar() {
           type="button"
           className="btn-ghost"
           style={{ width: '100%', justifyContent: 'flex-start', color: '#94a3b8' }}
-          onClick={logout}
+          onClick={handleLogout}
         >
           <LogOut size={16} /> Sign Out
         </button>

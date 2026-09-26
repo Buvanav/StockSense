@@ -11,6 +11,7 @@ import {
   CartesianGrid,
 } from 'recharts';
 import { useInventory } from '../context/InventoryContext';
+import { useAuth } from '../context/AuthContext';
 import KpiCard from '../components/KpiCard';
 import StatusBadge from '../components/StatusBadge';
 import {
@@ -23,20 +24,28 @@ import {
   Layers,
   ArrowRight,
   Building2,
-  CheckCircle2,
-  Clock,
-  Sliders,
   RefreshCw,
   LayoutGrid,
-  List
+  List,
+  ShieldCheck,
+  ClipboardList,
+  Truck,
+  Box,
+  Sliders,
+  Sparkles,
+  Lock
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export default function Dashboard() {
   const { products, documents, kpis, lowStock, warehouses, ledger, refreshAll, loading } = useInventory();
+  const { user } = useAuth();
   
+  const isManager = user?.role === 'Inventory Manager';
+  const isStaff = user?.role === 'Warehouse Staff';
+
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('all');
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' | 'list'
+  const [viewMode, setViewMode] = useState('grid');
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -50,7 +59,7 @@ export default function Dashboard() {
     );
   }, [documents, selectedWarehouseId]);
 
-  // Operations metrics calculation
+  // Operations lists
   const receiptsList = filteredDocsByWh.filter(d => d.type === 'receipt');
   const deliveriesList = filteredDocsByWh.filter(d => d.type === 'delivery');
   const transfersList = filteredDocsByWh.filter(d => d.type === 'transfer');
@@ -60,15 +69,6 @@ export default function Dashboard() {
   const pendingDeliveries = deliveriesList.filter(d => d.status !== 'Done' && d.status !== 'Canceled').length;
   const pendingTransfers = transfersList.filter(d => d.status !== 'Done' && d.status !== 'Canceled').length;
   const pendingAdjustments = adjustmentsList.filter(d => d.status !== 'Done' && d.status !== 'Canceled').length;
-
-  // Pipeline status breakdown (Draft, Waiting, Ready, Done)
-  const pipelineCounts = useMemo(() => {
-    const counts = { Draft: 0, Waiting: 0, Ready: 0, Done: 0, Canceled: 0 };
-    filteredDocsByWh.forEach(d => {
-      if (counts[d.status] !== undefined) counts[d.status]++;
-    });
-    return counts;
-  }, [filteredDocsByWh]);
 
   const filteredDocs = useMemo(() => {
     return filteredDocsByWh.filter(d => {
@@ -112,15 +112,30 @@ export default function Dashboard() {
 
   return (
     <div>
-      {/* Top Controls & Warehouse Switcher Bar */}
-      <div className="panel" style={{ marginBottom: 20, padding: '16px 24px' }}>
+      {/* Top Header Control Bar */}
+      <div className="panel" style={{ marginBottom: 20, padding: '18px 24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
           <div>
-            <h2 style={{ fontSize: 22, fontWeight: 800, display: 'flex', alignItems: 'center', gap: 10 }}>
-              Inventory Operations Dashboard
-            </h2>
-            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 2 }}>
-              Centralized real-time overview of incoming goods, deliveries, internal transfers & stock levels
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <h2 style={{ fontSize: 22, fontWeight: 800 }}>
+                {isStaff ? 'Warehouse Floor — Staff Workspace' : 'Inventory Management — Executive Overview'}
+              </h2>
+              <span className="badge" style={{
+                background: isStaff ? 'rgba(245, 158, 11, 0.15)' : 'var(--primary-light)',
+                color: isStaff ? '#d97706' : 'var(--primary)',
+                fontWeight: 700,
+                fontSize: 12,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4
+              }}>
+                <ShieldCheck size={14} /> {user?.role || 'Inventory Manager'} View
+              </span>
+            </div>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 4 }}>
+              {isStaff
+                ? 'Operational tasks for warehouse staff: item picking, receiving, shelving & physical counting'
+                : 'Strategic stock analytics, supplier receiving approvals, reorder rules & inventory valuation'}
             </p>
           </div>
 
@@ -128,7 +143,7 @@ export default function Dashboard() {
             {/* Warehouse Filter */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-card-hover)', padding: '6px 14px', borderRadius: 10, border: '1px solid var(--border)' }}>
               <Building2 size={16} className="text-primary" />
-              <span style={{ fontSize: 13, fontWeight: 700 }}>Warehouse:</span>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>Active Location:</span>
               <select
                 value={selectedWarehouseId}
                 onChange={e => setSelectedWarehouseId(e.target.value)}
@@ -145,32 +160,37 @@ export default function Dashboard() {
             <button className="btn-outline btn-sm" onClick={refreshAll} disabled={loading}>
               <RefreshCw size={14} className={loading ? 'spin' : ''} /> {loading ? 'Syncing...' : 'Sync Live DB'}
             </button>
-
-            {/* View Mode Toggle */}
-            <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-              <button
-                className={`btn-ghost btn-sm ${viewMode === 'grid' ? 'text-primary' : ''}`}
-                style={{ padding: '6px 12px', background: viewMode === 'grid' ? 'var(--primary-light)' : 'transparent', borderRadius: 0 }}
-                onClick={() => setViewMode('grid')}
-                title="Cards Grid View"
-              >
-                <LayoutGrid size={16} />
-              </button>
-              <button
-                className={`btn-ghost btn-sm ${viewMode === 'list' ? 'text-primary' : ''}`}
-                style={{ padding: '6px 12px', background: viewMode === 'list' ? 'var(--primary-light)' : 'transparent', borderRadius: 0 }}
-                onClick={() => setViewMode('list')}
-                title="List View"
-              >
-                <List size={16} />
-              </button>
-            </div>
           </div>
         </div>
       </div>
 
-      {/* Low Stock Alert Banner */}
-      {lowStock.length > 0 && (
+      {/* Role Banner Explanation */}
+      {isStaff && (
+        <div style={{
+          background: 'rgba(59, 130, 246, 0.08)',
+          border: '1px solid rgba(59, 130, 246, 0.3)',
+          color: '#2563eb',
+          borderRadius: 'var(--radius-lg)',
+          padding: '14px 20px',
+          marginBottom: 24,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <ClipboardList size={22} />
+            <div>
+              <strong style={{ fontSize: 14 }}>Warehouse Staff Execution View:</strong>
+              <span style={{ fontSize: 13, marginLeft: 6, color: 'var(--text-main)' }}>
+                You are viewing floor tasks (Pick, Pack, Shelve, Transfer, Count). System settings & master deletion are restricted to Inventory Managers.
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Low Stock Alert Banner (Manager View Focus) */}
+      {isManager && lowStock.length > 0 && (
         <div style={{
           background: 'var(--warning-light)',
           border: '1px solid rgba(245, 158, 11, 0.3)',
@@ -185,9 +205,9 @@ export default function Dashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <AlertTriangle size={20} />
             <div>
-              <strong style={{ fontSize: 14 }}>Low Stock Reorder Alert:</strong>
+              <strong style={{ fontSize: 14 }}>Reorder Threshold Alert:</strong>
               <span style={{ fontSize: 13, marginLeft: 6 }}>
-                {lowStock.length} product(s) (e.g. {lowStock.map(p => p.name).join(', ')}) are below reorder threshold!
+                {lowStock.length} product(s) (e.g. {lowStock.map(p => p.name).join(', ')}) require vendor reorder!
               </span>
             </div>
           </div>
@@ -197,202 +217,218 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Dynamic Status Stepper Bar (Draft -> Waiting -> Ready -> Done) */}
-      <div className="panel" style={{ marginBottom: 24, padding: '14px 20px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)' }}>Document Workflow Status Pipeline:</span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="badge draft">Draft ({pipelineCounts.Draft})</span>
-              <ArrowRight size={14} color="var(--border)" />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="badge waiting">Waiting ({pipelineCounts.Waiting})</span>
-              <ArrowRight size={14} color="var(--border)" />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="badge ready">Ready ({pipelineCounts.Ready})</span>
-              <ArrowRight size={14} color="var(--border)" />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="badge done">Done ({pipelineCounts.Done})</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* CORE EXCALIDRAW / ODOO OPERATIONS CARDS GRID */}
-      {viewMode === 'grid' && (
+      {/* ROLE-TAILORED OPERATIONAL DASHBOARD CARDS */}
+      {isStaff ? (
+        /* WAREHOUSE STAFF TAILORED DASHBOARD CARDS */
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20, marginBottom: 24 }}>
-          {/* Card 1: Receipts (Incoming Goods) */}
+          {/* Staff Task 1: Picking & Dispatch */}
+          <div className="panel" style={{ borderTop: '4px solid #3b82f6', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                <div>
+                  <h3 style={{ fontSize: 18, fontWeight: 800, color: '#3b82f6', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Truck size={20} /> Pick & Pack Items
+                  </h3>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Customer shipment dispatches</p>
+                </div>
+                <span style={{ fontSize: 24, fontWeight: 900, background: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', padding: '4px 14px', borderRadius: 12 }}>
+                  {pendingDeliveries}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, marginBottom: 16 }}>
+                <strong style={{ color: 'var(--text-main)' }}>{pendingDeliveries} Shipments to Pick & Pack</strong>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Locate items on shelves and prepare for validation dispatch.
+                </p>
+              </div>
+            </div>
+            <Link to="/operations/delivery" className="btn-primary" style={{ width: '100%', justifyContent: 'center', background: '#3b82f6', borderColor: '#3b82f6' }}>
+              Start Picking Orders →
+            </Link>
+          </div>
+
+          {/* Staff Task 2: Unload & Shelve Incoming Stock */}
           <div className="panel" style={{ borderTop: '4px solid #10b981', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                 <div>
                   <h3 style={{ fontSize: 18, fontWeight: 800, color: '#10b981', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <ArrowDownLeft size={20} /> Receipts
+                    <Box size={20} /> Unload & Shelve Goods
                   </h3>
-                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Incoming vendor goods</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Vendor incoming stock arrival</p>
                 </div>
-                <span style={{
-                  fontSize: 24,
-                  fontWeight: 900,
-                  background: 'rgba(16, 185, 129, 0.1)',
-                  color: '#10b981',
-                  padding: '4px 14px',
-                  borderRadius: 12
-                }}>
+                <span style={{ fontSize: 24, fontWeight: 900, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '4px 14px', borderRadius: 12 }}>
                   {pendingReceipts}
                 </span>
               </div>
-
               <div style={{ fontSize: 13, marginBottom: 16 }}>
-                <span style={{ fontWeight: 800 }}>{pendingReceipts} TO RECEIVE</span>
-                <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
-                  {receiptsList.filter(r => r.status === 'Waiting').length} Waiting • {receiptsList.filter(r => r.status === 'Ready').length} Ready to Validate
-                </div>
+                <strong style={{ color: 'var(--text-main)' }}>{pendingReceipts} Shipments to Unload</strong>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Inspect incoming deliveries and record goods in warehouse racks.
+                </p>
               </div>
-
-              {/* Sample recent receipt preview */}
-              {receiptsList.length > 0 && (
-                <div style={{ background: 'var(--bg-card-hover)', padding: 10, borderRadius: 8, fontSize: 12, marginBottom: 16 }}>
-                  <div style={{ fontWeight: 700, fontFamily: 'monospace' }}>{receiptsList[0].doc_number}</div>
-                  <div style={{ color: 'var(--text-muted)' }}>Supplier: {receiptsList[0].supplier || 'Global Vendor'}</div>
-                </div>
-              )}
             </div>
-
             <Link to="/operations/receipts" className="btn-primary" style={{ width: '100%', justifyContent: 'center', background: '#10b981', borderColor: '#10b981' }}>
-              Process Receipts →
+              Receive Goods →
             </Link>
           </div>
 
-          {/* Card 2: Delivery Orders (Outgoing Goods) */}
-          <div className="panel" style={{ borderTop: '4px solid #4f46e5', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                <div>
-                  <h3 style={{ fontSize: 18, fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <ArrowUpRight size={20} /> Delivery Orders
-                  </h3>
-                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Outgoing customer shipments</p>
-                </div>
-                <span style={{
-                  fontSize: 24,
-                  fontWeight: 900,
-                  background: 'var(--primary-light)',
-                  color: 'var(--primary)',
-                  padding: '4px 14px',
-                  borderRadius: 12
-                }}>
-                  {pendingDeliveries}
-                </span>
-              </div>
-
-              <div style={{ fontSize: 13, marginBottom: 16 }}>
-                <span style={{ fontWeight: 800 }}>{pendingDeliveries} TO DELIVER</span>
-                <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
-                  {deliveriesList.filter(d => d.status === 'Ready').length} Ready to Dispatch • {deliveriesList.filter(d => d.status === 'Done').length} Dispatched
-                </div>
-              </div>
-
-              {/* Sample recent delivery preview */}
-              {deliveriesList.length > 0 && (
-                <div style={{ background: 'var(--bg-card-hover)', padding: 10, borderRadius: 8, fontSize: 12, marginBottom: 16 }}>
-                  <div style={{ fontWeight: 700, fontFamily: 'monospace' }}>{deliveriesList[0].doc_number}</div>
-                  <div style={{ color: 'var(--text-muted)' }}>Customer: {deliveriesList[0].customer || 'Tech Client'}</div>
-                </div>
-              )}
-            </div>
-
-            <Link to="/operations/delivery" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
-              Process Deliveries →
-            </Link>
-          </div>
-
-          {/* Card 3: Internal Transfers */}
+          {/* Staff Task 3: Floor Rack-to-Rack Transfers */}
           <div className="panel" style={{ borderTop: '4px solid #f59e0b', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                 <div>
                   <h3 style={{ fontSize: 18, fontWeight: 800, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Repeat size={20} /> Internal Transfers
+                    <Repeat size={20} /> Rack-to-Rack Transfers
                   </h3>
-                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Inter-warehouse movements</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Internal stock relocation</p>
                 </div>
-                <span style={{
-                  fontSize: 24,
-                  fontWeight: 900,
-                  background: 'rgba(245, 158, 11, 0.1)',
-                  color: '#f59e0b',
-                  padding: '4px 14px',
-                  borderRadius: 12
-                }}>
+                <span style={{ fontSize: 24, fontWeight: 900, background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '4px 14px', borderRadius: 12 }}>
                   {pendingTransfers}
                 </span>
               </div>
-
               <div style={{ fontSize: 13, marginBottom: 16 }}>
-                <span style={{ fontWeight: 800 }}>{pendingTransfers} TO MOVE</span>
-                <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
-                  Main Store → Production Rack movements
-                </div>
+                <strong style={{ color: 'var(--text-main)' }}>{pendingTransfers} Moves Scheduled</strong>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Relocate stock from Main Store to Production Rack A/B.
+                </p>
               </div>
-
-              {/* Sample transfer preview */}
-              {transfersList.length > 0 && (
-                <div style={{ background: 'var(--bg-card-hover)', padding: 10, borderRadius: 8, fontSize: 12, marginBottom: 16 }}>
-                  <div style={{ fontWeight: 700, fontFamily: 'monospace' }}>{transfersList[0].doc_number}</div>
-                  <div style={{ color: 'var(--text-muted)' }}>{transfersList[0].source_warehouse_name} → {transfersList[0].dest_warehouse_name}</div>
-                </div>
-              )}
             </div>
-
             <Link to="/operations/transfers" className="btn-primary" style={{ width: '100%', justifyContent: 'center', background: '#f59e0b', borderColor: '#f59e0b' }}>
-              Process Transfers →
+              Execute Transfer →
             </Link>
           </div>
 
-          {/* Card 4: Physical Stock Adjustments */}
+          {/* Staff Task 4: Physical Count Audit */}
           <div className="panel" style={{ borderTop: '4px solid #8b5cf6', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                 <div>
                   <h3 style={{ fontSize: 18, fontWeight: 800, color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <Sliders size={20} /> Stock Adjustments
+                    <Sliders size={20} /> Physical Count Audit
                   </h3>
-                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Physical audit count fixes</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Stock count reconciliation</p>
                 </div>
-                <span style={{
-                  fontSize: 24,
-                  fontWeight: 900,
-                  background: 'rgba(139, 92, 246, 0.1)',
-                  color: '#8b5cf6',
-                  padding: '4px 14px',
-                  borderRadius: 12
-                }}>
+                <span style={{ fontSize: 24, fontWeight: 900, background: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', padding: '4px 14px', borderRadius: 12 }}>
                   {pendingAdjustments}
                 </span>
               </div>
+              <div style={{ fontSize: 13, marginBottom: 16 }}>
+                <strong style={{ color: 'var(--text-main)' }}>{pendingAdjustments} Audits Pending</strong>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Verify physical quantities on shelves against database records.
+                </p>
+              </div>
+            </div>
+            <Link to="/operations/adjustments" className="btn-primary" style={{ width: '100%', justifyContent: 'center', background: '#8b5cf6', borderColor: '#8b5cf6' }}>
+              Record Physical Count →
+            </Link>
+          </div>
+        </div>
+      ) : (
+        /* INVENTORY MANAGER TAILORED DASHBOARD CARDS */
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20, marginBottom: 24 }}>
+          {/* Manager Card 1: Receipts Approvals */}
+          <div className="panel" style={{ borderTop: '4px solid #10b981', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                <div>
+                  <h3 style={{ fontSize: 18, fontWeight: 800, color: '#10b981', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <ArrowDownLeft size={20} /> Vendor Goods Receipts
+                  </h3>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Supplier shipment receipts</p>
+                </div>
+                <span style={{ fontSize: 24, fontWeight: 900, background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '4px 14px', borderRadius: 12 }}>
+                  {pendingReceipts}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, marginBottom: 16 }}>
+                <span style={{ fontWeight: 800 }}>{pendingReceipts} PENDING APPROVAL</span>
+                <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
+                  {receiptsList.filter(r => r.status === 'Waiting').length} Waiting • {receiptsList.filter(r => r.status === 'Ready').length} Ready for Validation
+                </div>
+              </div>
+            </div>
+            <Link to="/operations/receipts" className="btn-primary" style={{ width: '100%', justifyContent: 'center', background: '#10b981', borderColor: '#10b981' }}>
+              Validate Receipts →
+            </Link>
+          </div>
 
+          {/* Manager Card 2: Delivery Approvals */}
+          <div className="panel" style={{ borderTop: '4px solid #4f46e5', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                <div>
+                  <h3 style={{ fontSize: 18, fontWeight: 800, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <ArrowUpRight size={20} /> Delivery Dispatch
+                  </h3>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Outgoing customer orders</p>
+                </div>
+                <span style={{ fontSize: 24, fontWeight: 900, background: 'var(--primary-light)', color: 'var(--primary)', padding: '4px 14px', borderRadius: 12 }}>
+                  {pendingDeliveries}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, marginBottom: 16 }}>
+                <span style={{ fontWeight: 800 }}>{pendingDeliveries} PENDING DISPATCH</span>
+                <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
+                  {deliveriesList.filter(d => d.status === 'Ready').length} Ready to Dispatch
+                </div>
+              </div>
+            </div>
+            <Link to="/operations/delivery" className="btn-primary" style={{ width: '100%', justifyContent: 'center' }}>
+              Authorize Deliveries →
+            </Link>
+          </div>
+
+          {/* Manager Card 3: Internal Transfers */}
+          <div className="panel" style={{ borderTop: '4px solid #f59e0b', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                <div>
+                  <h3 style={{ fontSize: 18, fontWeight: 800, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Repeat size={20} /> Internal Moves
+                  </h3>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Warehouse transfers</p>
+                </div>
+                <span style={{ fontSize: 24, fontWeight: 900, background: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', padding: '4px 14px', borderRadius: 12 }}>
+                  {pendingTransfers}
+                </span>
+              </div>
+              <div style={{ fontSize: 13, marginBottom: 16 }}>
+                <span style={{ fontWeight: 800 }}>{pendingTransfers} MOVES SCHEDULED</span>
+                <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
+                  Inter-warehouse replenishments
+                </div>
+              </div>
+            </div>
+            <Link to="/operations/transfers" className="btn-primary" style={{ width: '100%', justifyContent: 'center', background: '#f59e0b', borderColor: '#f59e0b' }}>
+              Approve Transfers →
+            </Link>
+          </div>
+
+          {/* Manager Card 4: Physical Stock Reconciliation */}
+          <div className="panel" style={{ borderTop: '4px solid #8b5cf6', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                <div>
+                  <h3 style={{ fontSize: 18, fontWeight: 800, color: '#8b5cf6', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <Sliders size={20} /> Reconcile Adjustments
+                  </h3>
+                  <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>Physical audit count fixes</p>
+                </div>
+                <span style={{ fontSize: 24, fontWeight: 900, background: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', padding: '4px 14px', borderRadius: 12 }}>
+                  {pendingAdjustments}
+                </span>
+              </div>
               <div style={{ fontSize: 13, marginBottom: 16 }}>
                 <span style={{ fontWeight: 800 }}>{pendingAdjustments} PENDING RECONCILE</span>
                 <div style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>
-                  Fix mismatches between system & counted stock
+                  Fix stock variance in database
                 </div>
               </div>
-
-              {/* Sample adjustment preview */}
-              {adjustmentsList.length > 0 && (
-                <div style={{ background: 'var(--bg-card-hover)', padding: 10, borderRadius: 8, fontSize: 12, marginBottom: 16 }}>
-                  <div style={{ fontWeight: 700, fontFamily: 'monospace' }}>{adjustmentsList[0].doc_number}</div>
-                  <div style={{ color: 'var(--text-muted)' }}>Reason: {adjustmentsList[0].reason || 'Physical count'}</div>
-                </div>
-              )}
             </div>
-
             <Link to="/operations/adjustments" className="btn-primary" style={{ width: '100%', justifyContent: 'center', background: '#8b5cf6', borderColor: '#8b5cf6' }}>
-              Reconcile Stock →
+              Reconcile Variance →
             </Link>
           </div>
         </div>
@@ -457,7 +493,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Operations Document Operations Table */}
+      {/* Document Operations Table */}
       <div className="panel">
         <div className="panel-header">
           <div className="panel-title">

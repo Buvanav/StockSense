@@ -29,16 +29,16 @@ export default function Profile() {
     setPasswordMsg(`OTP verification code sent to ${user.email}`);
   };
 
-  const handleChangePasswordSubmit = (e) => {
+  const handleChangePasswordSubmit = async (e) => {
     e.preventDefault();
-    const res = resetPassword(user.email, otpCode, newPassword);
+    const res = await resetPassword(user.email, otpCode, newPassword);
     if (res.ok) {
       setPasswordMsg('Password successfully updated!');
       setNewPassword('');
       setOtpCode('');
       setTimeout(() => setShowPasswordForm(false), 2000);
     } else {
-      setPasswordMsg(res.error);
+      setPasswordMsg(res.error || 'Failed to update password');
     }
   };
 
@@ -77,8 +77,8 @@ export default function Profile() {
               <h3 style={{ fontSize: 18, fontWeight: 800 }}>{user?.name}</h3>
               <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 2 }}>{user?.email}</div>
               <div style={{ marginTop: 6, display: 'flex', gap: 8 }}>
-                <span className="badge done" style={{ fontSize: 11 }}>
-                  <ShieldCheck size={12} /> Email Verified
+                <span className={`badge ${user?.isVerified ? 'done' : 'waiting'}`} style={{ fontSize: 11 }}>
+                  <ShieldCheck size={12} /> {user?.isVerified ? 'Email Verified' : 'Email Pending'}
                 </span>
                 <span className="badge ready" style={{ fontSize: 11 }}>
                   {user?.role || 'Inventory Manager'}
