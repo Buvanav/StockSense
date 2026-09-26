@@ -114,6 +114,8 @@ const LOC = {"Main Warehouse":["Rack A","Rack B"],"Production Warehouse":["Produ
 let DB = JSON.parse(localStorage.getItem('ss_db')||'null') || {users:[],session:null,products:[],stock:{},ledger:[],receipts:[],deliveries:[],seq:1};
 if(!DB.receipts) DB.receipts=[];
 if(!DB.deliveries) DB.deliveries=[];
+if(!DB.transfers) DB.transfers=[]; // Checkpoint 3: Transfers previously had no persisted document array (immediate-validate had none to persist)
+if(!DB.adjustments) DB.adjustments=[]; // Checkpoint 3: same — non-destructive, existing ledger/stock/products/users untouched
 let otpCache=null, otpUser=null;
 function save(){localStorage.setItem('ss_db',JSON.stringify(DB));}
 function toast(m){const t=document.createElement('div');t.className='toast';t.textContent=m;document.getElementById('toastBox').appendChild(t);setTimeout(()=>t.remove(),2500);}
@@ -227,16 +229,35 @@ function docBadge(status){const c={Draft:'b-gray',Waiting:'b-gray',Ready:'b-warn
 function docActionsHtml(kind,d){
  if(d.status==='Draft') return `<button class="btn gray" onclick="docAction('${kind}','edit','${d.id}')">Edit</button> <button class="btn" onclick="docAction('${kind}','submit','${d.id}')">Submit</button> <button class="btn red" onclick="docAction('${kind}','cancel','${d.id}')">Cancel</button>`;
  if(d.status==='Waiting') return `<button class="btn" onclick="docAction('${kind}','ready','${d.id}')">Mark Ready</button> <button class="btn red" onclick="docAction('${kind}','cancel','${d.id}')">Cancel</button>`;
- if(d.status==='Ready') return `<button class="btn" onclick="docAction('${kind}','validate','${d.id}')">Validate</button> <button class="btn red" onclick="docAction('${kind}','cancel','${d.id}')">Cancel</button>`;
+ if(d.status==='Ready'){
+  // Adjustments can still be edited at Ready so a failed "reason required" validation
+  // can be corrected (e.g. reason added) without discarding the document. Receipts/
+  // Deliveries/Transfers keep their original Ready-stage actions (Validate, Cancel only).
+  const editBtn=kind==='adjustment'?`<button class="btn gray" onclick="docAction('${kind}','edit','${d.id}')">Edit</button> `:'';
+  return `${editBtn}<button class="btn" onclick="docAction('${kind}','validate','${d.id}')">Validate</button> <button class="btn red" onclick="docAction('${kind}','cancel','${d.id}')">Cancel</button>`;
+ }
  return '<span style="color:var(--sub)">—</span>';
 }
 function docTable(kind,list){
+ if(kind==='transfer'){
+  return `<table><tr><th>ID</th><th>Product</th><th>Quantity</th><th>Source</th><th>Destination</th><th>Status</th><th>Actions</th></tr>
+  ${list.slice().reverse().map(d=>{const p=DB.products.find(x=>x.sku===d.sku);return `<tr><td>${d.id}</td><td>${p?p.name:d.sku}</td><td>${d.qty}</td><td>${d.from}</td><td>${d.to}</td><td>${docBadge(d.status)}</td><td>${docActionsHtml(kind,d)}</td></tr>`}).join('')||`<tr><td colspan=7 style="color:var(--sub)">No transfers yet</td></tr>`}
+  </table>`;
+ }
+ if(kind==='adjustment'){
+  return `<table><tr><th>ID</th><th>Product</th><th>Physical Qty</th><th>Location</th><th>Reason</th><th>Status</th><th>Actions</th></tr>
+  ${list.slice().reverse().map(d=>{const p=DB.products.find(x=>x.sku===d.sku);return `<tr><td>${d.id}</td><td>${p?p.name:d.sku}</td><td>${d.phys}</td><td>${d.loc}</td><td>${d.reason||'—'}</td><td>${docBadge(d.status)}</td><td>${docActionsHtml(kind,d)}</td></tr>`}).join('')||`<tr><td colspan=7 style="color:var(--sub)">No adjustments yet</td></tr>`}
+  </table>`;
+ }
+ // Original Receipt/Delivery table — unchanged from checkpoint 2.
  return `<table><tr><th>Ref</th><th>Product</th><th>Qty</th><th>Location</th><th>Status</th><th>Actions</th></tr>
  ${list.slice().reverse().map(d=>{const p=DB.products.find(x=>x.sku===d.sku);return `<tr><td>${d.id}</td><td>${p?p.name:d.sku}</td><td>${d.qty}</td><td>${d.loc}</td><td>${docBadge(d.status)}</td><td>${docActionsHtml(kind,d)}</td></tr>`}).join('')||`<tr><td colspan=6 style="color:var(--sub)">No ${kind}s yet</td></tr>`}
  </table>`;
 }
+function docList(kind){return kind==='receipt'?DB.receipts:kind==='delivery'?DB.deliveries:kind==='transfer'?DB.transfers:DB.adjustments;}
+function renderDocPage(kind){return kind==='receipt'?renderReceipts():kind==='delivery'?renderDeliveries():kind==='transfer'?renderTransfers():renderAdjustments();}
 function docAction(kind,action,id){
- const list=kind==='receipt'?DB.receipts:DB.deliveries;
+ const list=docList(kind);
  const d=list.find(x=>x.id===id);
  if(!d) return;
  if(action==='cancel'){
@@ -249,12 +270,36 @@ function docAction(kind,action,id){
   if(d.status!=='Waiting') return;
   d.status='Ready';save();
  } else if(action==='edit'){
-  if(d.status!=='Draft') return; // editing is only allowed before submission, and never touches stock
-  const nq=prompt('New quantity:',d.qty);
-  if(nq===null) return;
-  const nqn=Number(nq);
-  if(!nqn||nqn<=0) return toast('Quantity must be greater than 0.');
-  d.qty=nqn;save();
+  if(kind==='receipt'||kind==='delivery'){
+   if(d.status!=='Draft') return; // editing is only allowed before submission, and never touches stock
+   const nq=prompt('New quantity:',d.qty);
+   if(nq===null) return;
+   const nqn=Number(nq);
+   if(!nqn||nqn<=0) return toast('Quantity must be greater than 0.');
+   d.qty=nqn;save();
+  } else if(kind==='transfer'){
+   if(d.status!=='Draft') return; // Transfers are editable only while Draft, per spec
+   const nsku=prompt('Product SKU:',d.sku); if(nsku===null) return;
+   if(!DB.products.find(p=>p.sku===nsku)) return toast('Unknown SKU.');
+   const nqty=prompt('Quantity:',d.qty); if(nqty===null) return;
+   const nqtyn=Number(nqty); if(!nqtyn||nqtyn<=0) return toast('Quantity must be greater than 0.');
+   const nfrom=prompt('Source location:',d.from); if(nfrom===null) return;
+   if(!allLocs().includes(nfrom)) return toast('Unknown source location.');
+   const nto=prompt('Destination location:',d.to); if(nto===null) return;
+   if(!allLocs().includes(nto)) return toast('Unknown destination location.');
+   d.sku=nsku;d.qty=nqtyn;d.from=nfrom;d.to=nto;save();
+  } else { // adjustment — editable while Draft or Ready; Ready-stage edit exists so a
+           // failed "reason required" validation can be corrected without discarding the doc
+   if(d.status!=='Draft' && d.status!=='Ready') return;
+   const nsku=prompt('Product SKU:',d.sku); if(nsku===null) return;
+   if(!DB.products.find(p=>p.sku===nsku)) return toast('Unknown SKU.');
+   const nloc=prompt('Location:',d.loc); if(nloc===null) return;
+   if(!allLocs().includes(nloc)) return toast('Unknown location.');
+   const nphys=prompt('Physical quantity:',d.phys); if(nphys===null) return;
+   if(nphys===''||isNaN(Number(nphys))) return toast('Physical quantity is required.');
+   const nreason=prompt('Reason (required if physical count differs from system):',d.reason||''); if(nreason===null) return;
+   d.sku=nsku;d.loc=nloc;d.phys=Number(nphys);d.reason=nreason.trim();save();
+  }
  } else if(action==='validate'){
   if(d.status!=='Ready') return; // guards against double-validation and skipping stages
   const p=DB.products.find(x=>x.sku===d.sku);
@@ -262,17 +307,42 @@ function docAction(kind,action,id){
    setStock(d.sku,d.loc,getStock(d.sku,d.loc)+d.qty);
    addLedger({ref:d.id,product:p.name,sku:d.sku,qty:d.qty,type:'Receipt',loc:d.loc,status:'Done'});
    d.status='Done';save();toast('Receipt validated — stock increased');
-  } else {
+  } else if(kind==='delivery'){
    const avail=getStock(d.sku,d.loc);
    if(d.qty>avail) return toast(`Insufficient stock. Available: ${avail}, Requested: ${d.qty}`); // status stays Ready, stock untouched
    setStock(d.sku,d.loc,avail-d.qty);
    addLedger({ref:d.id,product:p.name,sku:d.sku,qty:-d.qty,type:'Delivery',loc:d.loc,status:'Done'});
    d.status='Done';save();toast('Delivery validated — stock decreased');
+  } else if(kind==='transfer'){
+   // Re-check every invariant at Validate time — the only point stock may move.
+   if(!p) return toast('Product no longer exists.');
+   if(!d.qty||d.qty<=0) return toast('Quantity must be greater than 0.');
+   if(!allLocs().includes(d.from)) return toast('Source location no longer exists.');
+   if(!allLocs().includes(d.to)) return toast('Destination location no longer exists.');
+   if(d.from===d.to) return toast('Source and destination locations must be different.');
+   const avail=getStock(d.sku,d.from);
+   if(d.qty>avail) return toast(`Insufficient stock. Available: ${avail}, Requested: ${d.qty}`); // status stays Ready, nothing touched
+   setStock(d.sku,d.from,avail-d.qty);
+   setStock(d.sku,d.to,getStock(d.sku,d.to)+d.qty);
+   addLedger({ref:d.id,product:p.name,sku:d.sku,qty:d.qty,type:'Transfer',loc:`${d.from} → ${d.to}`,status:'Done'});
+   d.status='Done';save();toast('Transfer validated — total stock unchanged');
+  } else { // adjustment
+   if(!p) return toast('Product no longer exists.');
+   if(d.phys===''||d.phys===undefined||d.phys===null||isNaN(Number(d.phys))) return toast('Physical quantity is required.');
+   const sys=getStock(d.sku,d.loc);
+   const delta=Number(d.phys)-sys;
+   if(delta!==0 && !(d.reason&&d.reason.trim())) return toast('Reason is required for a discrepancy.'); // status stays Ready, nothing touched
+   setStock(d.sku,d.loc,Number(d.phys));
+   // Existing project convention: always write exactly one Adjustment ledger entry per
+   // successful validation, including a zero-delta one (qty:0) — same as the pre-checkpoint-3
+   // doAdjust() behavior. No new zero-delta ledger rule is introduced here.
+   addLedger({ref:d.id,product:p.name,sku:d.sku,qty:delta,type:'Adjustment',loc:d.loc,status:'Done',reason:d.reason||'—'});
+   d.status='Done';save();toast('Adjustment validated');
   }
-  kind==='receipt'?renderReceipts():renderDeliveries();renderDashboard();
+  renderDocPage(kind);renderDashboard();
   return;
  }
- kind==='receipt'?renderReceipts():renderDeliveries();
+ renderDocPage(kind);
 }
 
 function renderReceipts(){
@@ -312,49 +382,52 @@ function createDelivery(){
  toast('Delivery created as Draft');renderDeliveries();
 }
 
+// ---------- DOCUMENT LIFECYCLE (Transfers & Adjustments): Draft -> Waiting -> Ready -> Done / Canceled ----------
+// Checkpoint 3: extends the same shared docAction()/docTable()/docBadge() dispatcher used by
+// Receipts & Deliveries. Only the 'validate' transition (Ready -> Done) ever touches stock or
+// the ledger — creation, submit, mark-ready and edit never do.
 function renderTransfers(){
  main.innerHTML=`<h1>Internal Transfers</h1>
- <div class="card"><div class="row">
+ <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">New Transfer</h3><div class="row">
   <select id="tProd">${prodOptions()}</select>
   <select id="tFrom">${locOptions()}</select>
   <select id="tTo">${locOptions()}</select>
   <input id="tQty" type="number" placeholder="Quantity" style="width:120px">
-  <button class="btn" onclick="doTransfer()">Validate Transfer</button>
- </div><div class="err" id="tErr"></div></div>`;
+  <button class="btn" onclick="createTransfer()">Create Draft</button>
+ </div><div class="err" id="tErr"></div></div>
+ <div class="card">${docTable('transfer',DB.transfers)}</div>`;
 }
-function doTransfer(){
+function createTransfer(){
  tErr.textContent='';const sku=tProd.value,from=tFrom.value,to=tTo.value,qty=Number(tQty.value);
  if(!sku) return tErr.textContent='Product required.';
- if(from===to) return tErr.textContent='Source and destination locations must be different.';
  if(!qty||qty<=0) return tErr.textContent='Quantity must be greater than 0.';
- const avail=getStock(sku,from);
- if(qty>avail) return tErr.textContent=`Insufficient stock. Available: ${avail}, Requested: ${qty}`;
- setStock(sku,from,avail-qty);setStock(sku,to,getStock(sku,to)+qty);
- const p=DB.products.find(x=>x.sku===sku);
- addLedger({ref:ref('TRF'),product:p.name,sku,qty:qty,type:'Transfer',loc:`${from} → ${to}`,status:'Done'});save();
- toast('Transfer complete — total stock unchanged');renderTransfers();renderDashboard();
+ if(from===to) return tErr.textContent='Source and destination locations must be different.';
+ // Insufficient stock is intentionally NOT checked here — only at Validate (Ready -> Done),
+ // per the controlled document lifecycle. Creating a Draft never touches stock or the ledger.
+ DB.transfers.push({id:ref('TRF'),sku,qty,from,to,status:'Draft'});save();
+ toast('Transfer created as Draft');renderTransfers();
 }
 
 function renderAdjustments(){
  main.innerHTML=`<h1>Inventory Adjustments</h1>
- <div class="card"><div class="row">
+ <div class="card" style="margin-bottom:16px"><h3 style="margin-top:0">New Adjustment</h3><div class="row">
   <select id="aProd">${prodOptions()}</select>
   <select id="aLoc">${locOptions()}</select>
   <input id="aPhys" type="number" placeholder="Physical Count" style="width:140px">
-  <input id="aReason" placeholder="Reason">
-  <button class="btn" onclick="doAdjust()">Validate Adjustment</button>
- </div><div class="err" id="aErr"></div></div>`;
+  <input id="aReason" placeholder="Reason (required if discrepancy)">
+  <button class="btn" onclick="createAdjustment()">Create Draft</button>
+ </div><div class="err" id="aErr"></div></div>
+ <div class="card">${docTable('adjustment',DB.adjustments)}</div>`;
 }
-function doAdjust(){
- aErr.textContent='';const sku=aProd.value,loc=aLoc.value,phys=Number(aPhys.value),reason=aReason.value.trim();
+function createAdjustment(){
+ aErr.textContent='';const sku=aProd.value,loc=aLoc.value,physRaw=aPhys.value,reason=aReason.value.trim();
  if(!sku) return aErr.textContent='Product required.';
- if(aPhys.value==='') return aErr.textContent='Physical quantity required.';
- const sys=getStock(sku,loc),diff=phys-sys;
- if(diff!==0 && !reason) return aErr.textContent='Reason is required for a discrepancy.';
- setStock(sku,loc,phys);
- const p=DB.products.find(x=>x.sku===sku);
- addLedger({ref:ref('ADJ'),product:p.name,sku,qty:diff,type:'Adjustment',loc,status:'Done',reason:reason||'—'});save();
- toast('Adjustment validated');renderAdjustments();renderDashboard();
+ if(physRaw==='') return aErr.textContent='Physical quantity required.';
+ if(isNaN(Number(physRaw))) return aErr.textContent='Physical quantity must be a number.';
+ // The reason-required-on-discrepancy rule is enforced at Validate, not at Draft creation,
+ // so a discrepancy can be recorded as a Draft even before its reason is known.
+ DB.adjustments.push({id:ref('ADJ'),sku,loc,phys:Number(physRaw),reason,status:'Draft'});save();
+ toast('Adjustment created as Draft');renderAdjustments();
 }
 
 function renderLedger(){

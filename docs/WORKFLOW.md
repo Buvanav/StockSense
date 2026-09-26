@@ -77,7 +77,10 @@ Dashboard KPIs recomputed live from current state
 
 ## Status Model
 
-**Receipts and Deliveries** now follow a full lifecycle:
+**All four document types — Receipts, Deliveries, Internal Transfers, and
+Inventory Adjustments — now follow the same lifecycle** (Checkpoint 3
+extended Transfers/Adjustments to match the Receipt/Delivery lifecycle
+introduced in Checkpoint 2):
 
 ```
 Draft ──submit──▶ Waiting ──mark ready──▶ Ready ──validate──▶ Done
@@ -87,29 +90,69 @@ Draft ──submit──▶ Waiting ──mark ready──▶ Ready ──valida
                    Canceled
 ```
 
-- **Draft:** created with product, location, quantity. No stock effect.
-  Quantity can be edited while in Draft. Can be submitted or cancelled.
-- **Waiting:** submitted from Draft. No stock effect. Can be marked Ready
-  or cancelled.
-- **Ready:** marked ready from Waiting. No stock effect. Can be validated
-  or cancelled.
+- **Draft:** created with the document's fields (Receipt/Delivery:
+  product, location, quantity; Transfer: product, quantity, source,
+  destination; Adjustment: product, location, physical quantity, reason).
+  No stock effect, no ledger entry. Editable while Draft — see below for
+  Adjustment's one exception.
+- **Waiting:** submitted from Draft. No stock effect, no ledger entry.
+  Can be marked Ready or cancelled.
+- **Ready:** marked ready from Waiting. No stock effect, no ledger entry.
+  Can be validated or cancelled.
 - **Done:** reached only via Validate from Ready. This is the *only*
-  transition that touches stock or writes a ledger entry — for a Receipt
-  it increases stock, for a Delivery it decreases stock (after checking
-  sufficient stock is available; if not, the document stays in Ready with
-  a clear error and stock is untouched). Done is terminal — no further
-  actions are available.
+  transition that may touch stock or write a ledger entry:
+  - **Receipt:** increases stock at the location; ledger `+quantity`.
+  - **Delivery:** decreases stock at the location, after checking
+    sufficient stock is available; if not, the document stays in Ready
+    with a clear error and stock is untouched. Ledger `-quantity`.
+  - **Transfer:** re-checks (at Validate time, not just at creation)
+    that the product exists, quantity is positive, both locations exist,
+    source ≠ destination, and source has sufficient stock; on any
+    failure the document stays Ready, nothing is touched. On success,
+    stock decreases at source and increases at destination by the same
+    amount (total company stock unchanged) and exactly one ledger entry
+    is written, `type: "Transfer"`, `loc` shown as `"Source → Destination"`.
+  - **Adjustment:** compares the physical count against the current
+    system quantity at the location (`delta = physical − system`); if
+    `delta ≠ 0` and no reason has been recorded, the document stays
+    Ready with an error and nothing is touched. On success, stock is set
+    to the physical count and exactly one ledger entry is written,
+    `type: "Adjustment"`, signed `qty: delta` (including a `delta = 0`
+    entry — see below), with the reason.
+  Done is terminal — no further actions are available.
 - **Canceled:** reachable from Draft, Waiting, or Ready. Never affects
-  stock. Terminal — no further actions are available.
+  stock or the ledger. Terminal — no further actions are available.
 
 Every transition re-checks the document's current status before applying,
 so:
 - Validate is a no-op if the document isn't currently Ready (this is what
-  prevents a Receipt/Delivery from ever applying its stock change twice —
+  prevents any document from ever applying its stock change twice —
   clicking Validate again on an already-Done document does nothing).
 - Cancel is a no-op if the document is already Done or already Canceled.
-- Edit is only permitted while Draft.
+- Edit is permitted while Draft for all four document types. **Adjustments
+  are additionally editable while Ready** — this is the one deliberate
+  exception, so a Validate that failed for "reason required" can be
+  corrected (e.g. the reason added) without discarding the document and
+  starting over. Editing never touches stock or the ledger for any
+  document type, at any stage.
 
-**Transfers and Adjustments** still validate immediately (no Draft
-stage) — this is a deliberately scoped difference for now; see Next Tasks
-in `DEVELOPMENT_STATUS.md` for extending the same lifecycle to them.
+### Transfer-specific notes
+
+- Source and destination must differ — checked both at creation (for
+  immediate feedback) and again at Validate.
+- Insufficient stock at the source location is intentionally **not**
+  checked at Draft creation — only at Validate — so a Transfer can be
+  drafted before its feasibility is known, matching the Delivery pattern.
+
+### Adjustment-specific notes
+
+- The "reason required on discrepancy" rule is enforced at Validate, not
+  at Draft creation, so a discrepancy can be recorded as a Draft before
+  its reason is known.
+- **Zero-difference adjustments:** if the physical count equals the
+  system quantity, the document still becomes Done, and stock is
+  (re-)set to the same value — no reason is required. Per the existing
+  project convention (unchanged from the pre-Checkpoint-3 immediate-
+  validate implementation), a ledger entry is still written in this case,
+  with `qty: 0`; this is not treated as inventing a new "fake stock
+  movement" since no quantity actually moves.

@@ -1,5 +1,70 @@
 # Changelog
 
+## [2026-09-26] — checkpoint 3
+
+### Added
+
+- Draft → Waiting → Ready → Done → Canceled status lifecycle extended to
+  Internal Transfers and Inventory Adjustments, replacing their previous
+  immediate-validate behavior — matching the lifecycle Receipts/Deliveries
+  already had since checkpoint 2.
+- `DB.transfers` array: `{ id, sku, qty, from, to, status }`.
+- `DB.adjustments` array: `{ id, sku, loc, phys, reason, status }`.
+- Shared `docAction()`/`docTable()`/`docBadge()` dispatcher extended to
+  also handle `kind: 'transfer'` and `kind: 'adjustment'`, instead of
+  introducing separate `transferAction()`/`adjustmentAction()` functions.
+- `docTable()` now renders kind-specific columns: Transfers show
+  Source/Destination instead of a single Location; Adjustments show
+  Physical Qty/Location/Reason instead of a single Qty.
+- Edit action for Draft-stage Transfers (product, quantity, source,
+  destination) and Draft-stage Adjustments (product, location, physical
+  quantity, reason).
+- Adjustments can also be edited while `Ready` (the one exception to
+  "edit only in Draft"), so a Validate that failed for "reason required"
+  can be corrected without discarding the document.
+- Cancel action for Transfers/Adjustments, available from Draft/Waiting/
+  Ready, with no stock or ledger effect — same as Receipts/Deliveries.
+
+### Changed
+
+- Transfers/Adjustments no longer write stock or a ledger entry at
+  creation — only at the Validate transition (Ready → Done).
+- Transfer validation (product exists, quantity > 0, both locations
+  exist, source ≠ destination, sufficient source stock) now happens at
+  Validate, not just at creation; a failed validation leaves the document
+  in Ready with a toast error and stock/ledger untouched.
+- Adjustment's "reason required on discrepancy" check now happens at
+  Validate, not at Draft creation.
+
+### Fixed
+
+- N/A this checkpoint.
+
+### Backward compatibility
+
+- `DB.transfers`/`DB.adjustments` did not exist before this checkpoint
+  (the old immediate-validate implementation had no persisted document
+  array for either). Both are now initialized to `[]` on load if missing,
+  the same non-destructive pattern already used for `DB.receipts`/
+  `DB.deliveries`. No existing `users`, `products`, `stock`, `ledger`, or
+  `seq` data was touched, reset, or restructured.
+
+### Tested
+
+- Standalone Node.js simulation (`vm`-based, DOM stubbed) of the full
+  Transfer and Adjustment lifecycles: draft→waiting→ready→done, duplicate
+  validation, insufficient-stock transfer, cancel-from-draft, positive/
+  negative/zero-delta adjustments, missing-reason-then-corrected, and a
+  regression pass confirming Receipt/Delivery lifecycles, dashboard,
+  ledger, and old-localStorage migration are unaffected. See
+  `DEVELOPMENT_STATUS.md` → Testing Status for the full scenario list and
+  results.
+
+### Git Commit
+
+- Not yet committed — delivered as updated files for the user to apply on
+  top of the existing `balaji` branch state, per the continuation prompt.
+
 ## [2026-09-26] — checkpoint 2
 
 ### Added
